@@ -1,0 +1,12 @@
+{
+  "required": false,
+  "package": "fr.tropimon.events.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "SystemMessageMixin",
+    "RegionPacketMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

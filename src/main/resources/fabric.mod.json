@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "tropimon_events",
+  "version": "${version}",
+  "name": "Tropimon Events",
+  "description": "By FastedCorsi — Events autonome pour Tropimon.",
+  "authors": [
+    "By FastedCorsi"
+  ],
+  "contact": {
+    "sources": "https://github.com/FastedCorsi/TropimonEvents"
+  },
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "fr.tropimon.events.EventsClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.17.2",
+    "minecraft": "1.21.1",
+    "java": ">=21",
+    "fabric-api": "*",
+    "cobblemon": ">=1.8.0"
+  },
+  "mixins": [
+    "tropimon_events.mixins.json"
+  ]
+}
