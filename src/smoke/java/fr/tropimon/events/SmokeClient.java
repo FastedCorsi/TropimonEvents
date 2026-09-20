@@ -18,6 +18,7 @@ import net.minecraft.world.level.LevelInfo;
 public final class SmokeClient implements ClientModInitializer {
   int ticks, stage = -1;
   long start;
+  boolean joined;
   net.minecraft.client.gui.screen.Screen screen;
   BlockPos habitatPos;
 
@@ -75,6 +76,11 @@ public final class SmokeClient implements ClientModInitializer {
   @Override
   public void onInitializeClient() {
     if (!Boolean.getBoolean("tropimon.smoke")) return;
+    net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.JOIN.register(
+        (handler, sender, client) -> {
+          joined = true;
+          ticks = 0;
+        });
     net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register(
         (context, counter) -> {
           // Deterministic hover even when the isolated window does not own desktop focus.
@@ -125,7 +131,7 @@ public final class SmokeClient implements ClientModInitializer {
                         client.currentScreen);
               }
               case 0 -> {
-                if (client.player == null) return;
+                if (!joined || client.player == null) return;
                 long end = System.currentTimeMillis() / 1000 + 7200;
                 client
                     .getServer()
