@@ -71,7 +71,9 @@ public final class EventsClient implements ClientModInitializer {
                 () -> c.getNetworkHandler().sendChatCommand("gym open"));
           }
         });
-    ClientPlayConnectionEvents.JOIN.register((h, s, c) -> reset());
+    // Tropimon can send miracle announcements before JOIN finishes. Clear the previous session
+    // when its play handler is initialized, before those first messages can arrive.
+    ClientPlayConnectionEvents.INIT.register((h, c) -> reset());
     ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> reset());
     HudRenderCallback.EVENT.register(
         (c, t) -> {

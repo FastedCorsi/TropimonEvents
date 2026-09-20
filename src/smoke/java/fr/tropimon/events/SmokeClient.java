@@ -92,6 +92,7 @@ public final class SmokeClient implements ClientModInitializer {
   @Override
   public void onInitializeClient() {
     if (!Boolean.getBoolean("tropimon.smoke")) return;
+    EventsClient.STATE.accept("- XP x2 (end in 10 minutes)", true, System.currentTimeMillis());
     net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playC2S()
         .register(
             fr.tropimon.tropimodcore.networking.payload.teleport.WarpRequestPayload.ID,
@@ -170,6 +171,16 @@ public final class SmokeClient implements ClientModInitializer {
                   stage = 99;
                   return;
                 }
+                require(
+                    ((Collection<?>) field(EventsClient.STATE, "earlyMessages"))
+                        .stream()
+                            .anyMatch(
+                                message -> message.toString().contains("1 hour and 13 seconds")),
+                    "miracle received before client JOIN is retained");
+                require(
+                    EventsClient.STATE.visible(System.currentTimeMillis()).stream()
+                        .noneMatch(n -> n.kind() == EventState.Kind.XP),
+                    "INIT clears previous session before new messages");
                 long end = System.currentTimeMillis() / 1000 + 7200;
                 client
                     .getServer()
@@ -185,11 +196,6 @@ public final class SmokeClient implements ClientModInitializer {
                                   + " synthétique du test hors ligne\",\"endTimestamp\":"
                                   + end
                                   + ",\"eventObjectives\":{\"HUNTS\":25,\"RAIDS\":10}}";
-                          player.networkHandler.sendPacket(
-                              new net.minecraft.network.packet.s2c.play.GameMessageS2CPacket(
-                                  net.minecraft.text.Text.literal(
-                                      "- Shiny x2 (end in 1 hour, 33 minutes and 42 seconds)"),
-                                  false));
                           player.networkHandler.sendPacket(
                               new net.minecraft.network.packet.s2c.common.CustomPayloadS2CPacket(
                                   new RegionFixture("synthetic-region")));
@@ -207,6 +213,16 @@ public final class SmokeClient implements ClientModInitializer {
                     EventsClient.STATE.visible(System.currentTimeMillis()).stream()
                         .anyMatch(n -> n.kind() == EventState.Kind.SHINY),
                     "Shiny packet received before region recognition survives");
+                require(
+                    EventsClient.STATE.visible(System.currentTimeMillis()).stream()
+                        .map(EventState.Notice::kind)
+                        .toList()
+                        .containsAll(
+                            List.of(
+                                EventState.Kind.SHINY,
+                                EventState.Kind.ABILITY,
+                                EventState.Kind.IV)),
+                    "all three miracles received before JOIN survive region recognition");
                 require(
                     java.util.Arrays.stream(client.options.allKeys)
                         .noneMatch(k -> k.getTranslationKey().equals("key.tropimon_events.open")),

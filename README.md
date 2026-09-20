@@ -1,6 +1,6 @@
 # Tropimon Events
 
-By FastedCorsi — 0.2.5
+By FastedCorsi — 0.2.6
 
 Des icônes Pokémon/Cobblemon directement dans le HUD. Aucune touche ni ouverture de menu n'est nécessaire : le raccourci F6 et l'écran d'inspection ont été retirés.
 
@@ -41,7 +41,7 @@ Tests unitaires, vérifications d'installation différée et contrôle de confid
 
 ## Livraison
 
-Deux JAR identiques dans `build/release/0.2.5/local` et `build/release/0.2.5/shareable`, accompagnés de SHA-256. Ne pas charger les deux exemplaires. La livraison LOCAL inclut un installateur autonome pour le stockage géré : `mods-user`, `mods` et `user-mods-tracked.json`. Il préserve les autres mods et leur désactivation, attend la fermeture du jeu, vérifie les empreintes et sauvegarde les anciens fichiers hors des dossiers chargés. Le launcher peut rester ouvert.
+Deux JAR identiques dans `build/release/0.2.6/local` et `build/release/0.2.6/shareable`, accompagnés de SHA-256. Ne pas charger les deux exemplaires. La livraison LOCAL inclut un installateur autonome pour le stockage géré : `mods-user`, `mods` et `user-mods-tracked.json`. Il préserve les autres mods et leur désactivation, attend la fermeture du jeu, vérifie les empreintes et sauvegarde les anciens fichiers hors des dossiers chargés. Le launcher peut rester ouvert.
 
 L'auto-update autonome consulte uniquement la Release officielle de ce dépôt, avec vérification SHA-256/id/version, préparation hors des mods et remplacement différé sous Windows. Sur un profil géré, il met à jour les deux copies sous leur nom déjà suivi, vérifie que le suivi reste inchangé et refuse une copie divergente ou une cible modifiée. Il ne répare pas rétroactivement les anciennes versions distribuées. Vérification espacée d'au moins six heures ; désactivation locale dans `config/tropimon_events-updater.json`.
 
