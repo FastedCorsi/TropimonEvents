@@ -6,6 +6,29 @@ import com.google.gson.*;
 import org.junit.jupiter.api.Test;
 
 class GymObservationTest {
+  @Test
+  void explicitOpeningAndClosureUpdateWithoutMenu() {
+    for (String[] messages :
+        new String[][] {
+          {
+            "TestLeader a ouvert l'arène Feu. Clique pour te téléporter",
+            "L'arène de Feu ferme ses portes."
+          },
+          {"TestLeader opened the Fire type gym. Teleport", "TestLeader closed the Fire type gym."}
+        }) {
+      var state = new EventState();
+      assertTrue(state.accept("ꌈ " + messages[0], true, 1000));
+      assertTrue(state.gyms.get("FIRE").open());
+      assertFalse(state.accept("OtherPlayer: " + messages[1], true, 1500));
+      assertTrue(state.gyms.get("FIRE").open());
+      assertTrue(state.accept(messages[1], true, 2000));
+      assertFalse(state.gyms.get("FIRE").open());
+      assertEquals("TestLeader", state.gyms.get("FIRE").leader());
+    }
+    assertNull(
+        GymObservation.announcement("TestLeader a ouvert l'arène Inconnue. Téléporter", 1000));
+  }
+
   private static JsonObject json(String s) {
     return JsonParser.parseString(s).getAsJsonObject();
   }

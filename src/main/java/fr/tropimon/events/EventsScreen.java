@@ -11,7 +11,7 @@ public final class EventsScreen extends Screen {
   }
 
   public void render(DrawContext c, int mouseX, int mouseY, float delta) {
-    EventsHud.draw(c, mouseX, mouseY, true);
+    EventsHud.draw(c, mouseX, mouseY);
     c.drawCenteredTextWithShadow(
         textRenderer,
         "Survole une icône · F6 / Échap : retour au jeu",

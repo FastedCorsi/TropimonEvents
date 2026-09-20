@@ -12,25 +12,26 @@ final class EventsHud {
     scroll = Math.clamp(scroll + (amount > 0 ? -1 : 1), 0, 100);
   }
 
-  static void draw(DrawContext c, double mouseX, double mouseY, boolean inspect) {
+  static void draw(DrawContext c, double mouseX, double mouseY) {
     var mc = MinecraftClient.getInstance();
     var state = EventsClient.STATE;
     long now = System.currentTimeMillis();
     var notices = state.visible(now);
-    int columns = Math.max(1, Math.min(4, (mc.getWindow().getScaledWidth() - 16) / 38));
-    int count = (inspect ? 8 : notices.size()) + Math.max(inspect ? 1 : 0, state.gyms.size());
+    var gyms = state.gyms.values().stream().filter(GymObservation::open).toList();
+    int columns = Math.max(1, Math.min(4, (mc.getWindow().getScaledWidth() - 16) / 28));
+    int count = notices.size() + gyms.size();
     int rows = Math.max(1, (count + columns - 1) / columns);
-    int size = Math.max(12, Math.min(32, (mc.getWindow().getScaledHeight() - 40) / rows - 6));
-    int step = size + 6;
+    int size = Math.max(12, Math.min(24, (mc.getWindow().getScaledHeight() - 56) / rows - 4));
+    int step = size + 4;
     int i = 0;
     List<Text> hovered = null;
     for (var kind : EventState.Kind.values()) {
       var notice = notices.stream().filter(n -> n.kind() == kind).findFirst().orElse(null);
-      if (notice == null && !inspect) continue;
-      int x = 8 + i % columns * step, y = 8 + i / columns * step;
+      if (notice == null) continue;
+      int x = 8 + i % columns * step, y = 24 + i / columns * step;
       i++;
       EventIcons.draw(c, kind, x, y, size);
-      if (notice != null && notice.end() > now) {
+      if (notice.end() > now) {
         long seconds = (notice.end() - now + 999) / 1000;
         String remaining = seconds >= 60 ? seconds / 60 + "m" : seconds + "s";
         c.drawTextWithShadow(mc.textRenderer, remaining, x + 2, y + size - 7, 0xFFFFFFFF);
@@ -38,13 +39,10 @@ final class EventsHud {
       if (hit(mouseX, mouseY, x, y, size)) {
         hovered = new ArrayList<>();
         add(hovered, name(kind));
-        if (notice == null) add(hovered, "Aucune information reçue dans cette session");
-        else {
-          add(hovered, notice.title());
-          add(hovered, notice.status(now));
-          add(hovered, notice.detail());
-          add(hovered, age(now, notice.observed()));
-        }
+        add(hovered, notice.title());
+        add(hovered, notice.status(now));
+        add(hovered, notice.detail());
+        add(hovered, age(now, notice.observed()));
         if (kind == EventState.Kind.RAID || kind == EventState.Kind.MEGA) {
           var boss = state.raidBoss(kind);
           add(
@@ -70,11 +68,12 @@ final class EventsHud {
         }
       }
     }
-    for (var gym : state.gyms.values()) {
-      int x = 8 + i % columns * step, y = 8 + i / columns * step;
+    for (var gym : gyms) {
+      int x = 8 + i % columns * step, y = 24 + i / columns * step;
       i++;
-      EventIcons.tile(c, gym.open() ? 8 : 9, x, y, size);
-      if (gym.battle().startsWith("Prise d'arène :")) EventIcons.tile(c, 10, x + 18, y - 2, 16);
+      EventIcons.gym(c, gym, x, y, size);
+      if (gym.battle().startsWith("Prise d'arène :"))
+        EventIcons.tile(c, 10, x + size - 10, y - 2, 12);
       if (hit(mouseX, mouseY, x, y, size)) {
         hovered = new ArrayList<>();
         add(hovered, "Arène " + gym.label());
@@ -84,15 +83,6 @@ final class EventsHud {
         add(hovered, age(now, gym.observed()));
         add(hovered, "Instantané serveur · ouvre le menu officiel pour actualiser.");
       }
-    }
-    if (inspect && state.gyms.isEmpty()) {
-      int x = 8 + i % columns * step, y = 8 + i / columns * step;
-      EventIcons.tile(c, 11, x, y, size);
-      if (hit(mouseX, mouseY, x, y, size))
-        hovered =
-            List.of(
-                Text.literal("Arènes : état non reçu"),
-                Text.literal("Ouvre le navigateur ou un terminal d'arène officiel."));
     }
     if (hovered != null) {
       int maxLines = Math.max(3, (mc.getWindow().getScaledHeight() - 30) / 10);

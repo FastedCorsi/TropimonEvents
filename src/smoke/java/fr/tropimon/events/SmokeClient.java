@@ -75,6 +75,11 @@ public final class SmokeClient implements ClientModInitializer {
   @Override
   public void onInitializeClient() {
     if (!Boolean.getBoolean("tropimon.smoke")) return;
+    net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register(
+        (context, counter) -> {
+          // Deterministic hover even when the isolated window does not own desktop focus.
+          if (stage == 3) EventsHud.draw(context, 18, 62);
+        });
     net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playS2C()
         .register(EventFixture.ID, EventFixture.CODEC);
     net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playS2C()
@@ -141,8 +146,7 @@ public final class SmokeClient implements ClientModInitializer {
                                   new EventFixture(json)));
                         })
                     .get();
-                screen = new EventsScreen();
-                client.setScreen(screen);
+                client.setScreen(null);
                 stage = 1;
                 ticks = 0;
               }
@@ -161,8 +165,8 @@ public final class SmokeClient implements ClientModInitializer {
                                   .getPlayer(client.player.getUuid());
                           for (String text :
                               List.of(
-                                  "[12:30]  TestPlayer triggered a Boost Shiny x2 for an hour !",
-                                  "[12:30] TestPlayer a déclenché un Mega Raid ! (Clique pour te"
+                                  " TestPlayer triggered a Boost Shiny x2 for an hour !",
+                                  " TestPlayer a déclenché un Mega Raid ! (Clique pour te"
                                       + " téléporter)"))
                             player.networkHandler.sendPacket(
                                 new net.minecraft.network.packet.s2c.play.GameMessageS2CPacket(
@@ -193,6 +197,7 @@ public final class SmokeClient implements ClientModInitializer {
                 require(
                     EventsClient.STATE.visible(System.currentTimeMillis()).size() == 4,
                     "actual system message packets detected");
+                require(client.currentScreen == null, "HUD without opening F6");
                 shot(client, "events");
                 require(
                     EventsClient.STATE.gyms.size() == 2
@@ -202,7 +207,9 @@ public final class SmokeClient implements ClientModInitializer {
                     EventsClient.STATE.raidBoss(EventState.Kind.RAID).pokemon().equals("Charizard"),
                     "explicit raid boss network label decoded");
                 // F6 points at the first arena; do not operate a real server.
-                org.lwjgl.glfw.GLFW.glfwSetCursorPos(client.getWindow().getHandle(), 36, 192);
+                screen = new EventsScreen();
+                client.setScreen(screen);
+                org.lwjgl.glfw.GLFW.glfwSetCursorPos(client.getWindow().getHandle(), 36, 124);
                 stage = 3;
                 ticks = 0;
               }
@@ -212,6 +219,11 @@ public final class SmokeClient implements ClientModInitializer {
                 require(
                     EventsClient.STATE.visible(System.currentTimeMillis()).isEmpty(),
                     "session reset");
+                stage = 4;
+                ticks = 0;
+              }
+              case 4 -> {
+                shot(client, "empty-inspect");
                 done(client);
               }
             }

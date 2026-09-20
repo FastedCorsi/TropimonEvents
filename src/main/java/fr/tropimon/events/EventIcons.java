@@ -13,6 +13,9 @@ import net.minecraft.util.Identifier;
 final class EventIcons {
   private static final Identifier ATLAS =
       Identifier.of("tropimon_events", "textures/gui/events.png");
+  private static final Identifier GYM_CARDS =
+      Identifier.of("tropimodclient", "guis/navigator/competition/gymlist/gymlist.png");
+  private static Boolean gymCardsAvailable;
 
   private record Portrait(String name, String language, ItemStack item) {}
 
@@ -21,6 +24,37 @@ final class EventIcons {
 
   static void reset() {
     PORTRAITS.clear();
+    gymCardsAvailable = null;
+  }
+
+  static void gym(DrawContext c, GymObservation gym, int x, int y, int size) {
+    tile(c, 8, x, y, size);
+    var mc = MinecraftClient.getInstance();
+    if (gymCardsAvailable == null)
+      gymCardsAvailable = mc.getResourceManager().getResource(GYM_CARDS).isPresent();
+    // Sample the official navigator's cards at runtime; never redistribute its artwork.
+    int index = GymObservation.TYPES.indexOf(gym.type());
+    if (index == 3) index = 4;
+    else if (index == 4) index = 3;
+    int width = Math.max(7, size * 10 / 24), height = Math.max(8, size * 12 / 24);
+    int left = x + (size - width) / 2, top = y + size - height - 2;
+    if (gymCardsAvailable) {
+      c.drawTexture(
+          GYM_CARDS,
+          left,
+          top,
+          width,
+          height,
+          26 + index % 9 * 33,
+          65 + index / 9 * 38,
+          30,
+          34,
+          345,
+          205);
+    } else {
+      c.drawCenteredTextWithShadow(
+          mc.textRenderer, gym.label().substring(0, 2), x + size / 2, top + 2, 0xFFFFFFFF);
+    }
   }
 
   static void tile(DrawContext c, int tile, int x, int y, int size) {

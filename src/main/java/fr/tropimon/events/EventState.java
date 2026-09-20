@@ -109,16 +109,28 @@ public final class EventState {
   public boolean accept(String input, boolean officialSystem, long now) {
     if (!officialSystem || input == null || input.length() > 2048) return false;
     String s = input.replaceAll("§[0-9a-fk-orA-FK-OR]", "").strip();
-    // Official server lines are timestamped. Rank/chat separators are never discarded.
-    if (!s.matches("^\\[\\d{2}:\\d{2}]\\s+.*")) return false;
+    // Timestamps are optional client decoration, absent from the original network message.
+    // Keep rank/chat separators so a player's quoted announcement is never accepted.
     s = s.replaceFirst("^\\[\\d{2}:\\d{2}]\\s+", "").replaceFirst("^[ꌈ]\\s*", "").strip();
     if (s.contains("") || s.contains("ꌂ") || s.contains("ꌃ")) return false;
     recent.entrySet().removeIf(e -> now - e.getValue() > 2500);
     if (recent.containsKey(s)) return false;
+    // Parse arena messages only when their fixed opening/closing words are present.
+    if (s.contains("arène") || s.contains(" gym")) {
+      var gym = GymObservation.announcement(s, now);
+      if (gym != null) {
+        var old = gyms.get(gym.type());
+        if (gym.leader().isBlank() && old != null)
+          gym = new GymObservation(gym.type(), old.leader(), gym.open(), gym.battle(), now);
+        gyms.put(gym.type(), gym);
+        remember(s, now);
+        return true;
+      }
+    }
     Matcher raid =
         Pattern.compile(
-                "^([A-Za-z0-9_]{1,16}) a déclenché un (Mega |Méga )?Raid ! \\(Clique pour te"
-                    + " téléporter\\)$",
+                "^([A-Za-z0-9_]{1,16}) (?:a déclenché un |has started a )(Mega |Méga )?Raid !"
+                    + "(?: \\((?:Clique pour te téléporter|Click to teleport)\\))?$",
                 Pattern.CASE_INSENSITIVE)
             .matcher(s);
     Kind kind;

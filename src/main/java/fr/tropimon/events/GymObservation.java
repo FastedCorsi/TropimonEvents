@@ -55,6 +55,35 @@ public record GymObservation(
     return open ? "Ouverte lors de l'observation" : "Fermée lors de l'observation";
   }
 
+  private static final java.util.regex.Pattern OPENING =
+      java.util.regex.Pattern.compile(
+          "^([A-Za-z0-9_]{1,16})(?: a ouvert l'arène ([\\p{L} ]{1,32})\\.| opened the ([\\p{L}"
+              + " ]{1,32}) gym\\.)(?: .*)?$");
+  private static final java.util.regex.Pattern CLOSING =
+      java.util.regex.Pattern.compile(
+          "^(?:L'arène de ([\\p{L} ]{1,32}) ferme ses portes\\.|The ([\\p{L} ]{1,32}) gym has"
+              + " closed\\.|[A-Za-z0-9_]{1,16} a fermé l'arène de ([\\p{L}"
+              + " ]{1,32})\\.|[A-Za-z0-9_]{1,16} closed the ([\\p{L} ]{1,32}) gym\\.)$");
+
+  /** Exact type-bearing forms of the official French/English opening and closing messages. */
+  static GymObservation announcement(String s, long now) {
+    var match = OPENING.matcher(s);
+    boolean open = match.matches();
+    if (!open) {
+      match = CLOSING.matcher(s);
+      if (!match.matches()) return null;
+    }
+    String label = "";
+    for (int i = open ? 2 : 1; i <= match.groupCount(); i++)
+      if (match.group(i) != null) label = match.group(i);
+    label = label.replaceFirst("^type ", "").replaceFirst(" type$", "");
+    for (int i = 0; i < TYPES.size(); i++)
+      if (LABELS.get(i).equalsIgnoreCase(label) || TYPES.get(i).equalsIgnoreCase(label))
+        return new GymObservation(
+            TYPES.get(i), open ? match.group(1) : "", open, "État du match non reçu", now);
+    return null;
+  }
+
   static Map<String, GymObservation> selector(JsonObject json, long now) {
     JsonObject gyms = json.getAsJsonObject("gyms");
     if (gyms == null || gyms.size() > 18) throw new IllegalArgumentException();

@@ -52,6 +52,7 @@ public final class EventsClient implements ClientModInitializer {
     ClientTickEvents.END_CLIENT_TICK.register(
         c -> {
           while (openKey.wasPressed()) {
+            if (c.currentScreen != null && !(c.currentScreen instanceof EventsScreen)) continue;
             EventsHud.scroll = 0;
             c.setScreen(c.currentScreen instanceof EventsScreen ? null : new EventsScreen());
           }
@@ -61,17 +62,8 @@ public final class EventsClient implements ClientModInitializer {
     HudRenderCallback.EVENT.register(
         (c, t) -> {
           var mc = MinecraftClient.getInstance();
-          if (mc.player == null || mc.options.hudHidden || mc.currentScreen instanceof EventsScreen)
-            return;
-          double mx =
-              mc.currentScreen == null
-                  ? -1
-                  : mc.mouse.getX() * mc.getWindow().getScaledWidth() / mc.getWindow().getWidth();
-          double my =
-              mc.currentScreen == null
-                  ? -1
-                  : mc.mouse.getY() * mc.getWindow().getScaledHeight() / mc.getWindow().getHeight();
-          EventsHud.draw(c, mx, my, false);
+          if (mc.player == null || mc.options.hudHidden || mc.currentScreen != null) return;
+          EventsHud.draw(c, -1, -1);
         });
     TropimonSelfUpdater.start(LoggerFactory.getLogger("tropimon_events"));
   }

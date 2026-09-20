@@ -6,6 +6,37 @@ import org.junit.jupiter.api.Test;
 
 class EventStateTest {
   @Test
+  void rawNetworkAnnouncementsDoNotRequireClientTimestamp() {
+    var s = new EventState();
+    assertTrue(
+        s.accept(" TestPlayer a déclenché un Raid ! (Clique pour te téléporter)", true, 1000));
+    assertEquals(EventState.Kind.RAID, s.visible(1000).getFirst().kind());
+    assertFalse(
+        s.accept(
+            "[12:30]     TestPlayer a déclenché un Raid ! (Clique pour te téléporter)",
+            true,
+            1100));
+    assertTrue(s.accept(" TestPlayer triggered a Boost Shiny x2 for an hour !", true, 2000));
+    assertTrue(s.accept("ꌈ No boosts are currently active.", true, 3000));
+    assertEquals(1, s.visible(3000).size());
+    assertTrue(s.accept("ꌈ Suppression des objets au sol dans 1 minute", true, 4000));
+    assertFalse(
+        s.accept(
+            "ꈎ TestPlayer:  TestPlayer a déclenché un Raid ! (Clique pour te téléporter)",
+            true,
+            5000));
+    assertFalse(
+        s.accept(
+            "ꌃ TestPlayer TestPlayer a déclenché un Raid ! (Clique pour te téléporter)",
+            true,
+            5000));
+    assertFalse(
+        s.accept("TestPlayer: TestPlayer triggered a Boost XP x2 for an hour !", true, 5000));
+    assertTrue(s.accept(" TestPlayer has started a Mega raid ! (Click to teleport)", true, 6000));
+    assertTrue(s.accept("TestPlayer has started a raid !", true, 7000));
+  }
+
+  @Test
   void systemOnlyAndSpoofing() {
     var s = new EventState();
     String b = "[12:30]  TestPlayer triggered a Boost Shiny x2 for an hour !";
