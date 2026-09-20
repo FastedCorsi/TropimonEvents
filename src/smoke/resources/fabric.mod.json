@@ -8,7 +8,8 @@
   "environment": "client",
   "entrypoints": {
     "client": [
-      "fr.tropimon.events.SmokeClient"
+      "fr.tropimon.events.SmokeClient",
+      "fr.tropimon.events.UpdaterConsentSmoke"
     ]
   },
   "depends": {

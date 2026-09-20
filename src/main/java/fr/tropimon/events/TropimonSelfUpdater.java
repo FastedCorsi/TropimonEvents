@@ -174,7 +174,7 @@ final class TropimonSelfUpdater {
                 if (!oldHash.equals(job.getProperty("oldHash"))) throw new IOException("Installed mod changed during download");
                 launchInstaller(directory, job);
                 log.info("{}: update {} prepared with consent; waiting for Minecraft to stop.", MOD_ID, offer.version);
-                notice(tr("Mise Ã  jour prÃ©parÃ©e. Elle sera installÃ©e aprÃ¨s fermeture de Minecraft.",
+                notice(tr("Mise à jour préparée. Elle sera installée après fermeture de Minecraft.",
                         "Update prepared. It will install after Minecraft closes."));
             } catch (Exception failure) { failed(failure); }
             finally { BUSY.set(false); }
@@ -230,7 +230,7 @@ final class TropimonSelfUpdater {
 
     private static void failed(Exception failure) {
         log.warn("{}: update unavailable ({}); existing mod preserved.", MOD_ID, failure.getClass().getSimpleName());
-        notice(tr("Mise Ã  jour impossible. Le mod actuel est conservÃ©. Consulte la Release officielle.",
+        notice(tr("Mise à jour impossible. Le mod actuel est conservé. Consulte la Release officielle.",
                 "Update unavailable. Your current mod is preserved. Check the official release."));
     }
 
@@ -264,21 +264,21 @@ final class TropimonSelfUpdater {
         private final ReleaseOffer offer;
         private int scroll, maxScroll;
         UpdateScreen(Screen parent, ReleaseOffer offer) {
-            super(Text.literal(REPOSITORY + " â€” " + tr("Mises Ã  jour", "Updates")));
+            super(Text.literal(REPOSITORY + " — " + tr("Mises à jour", "Updates")));
             this.parent = parent; this.offer = offer;
         }
         @Override protected void init() {
             int w = Math.min(300, width - 30), x = (width - w) / 2;
             addDrawableChild(ButtonWidget.builder(Text.literal(offer == null
-                    ? tr("Autoriser les vÃ©rifications", "Allow update checks")
-                    : tr("TÃ©lÃ©charger et installer", "Download and install")), button -> {
+                    ? tr("Autoriser les vérifications", "Allow update checks")
+                    : tr("Télécharger et installer", "Download and install")), button -> {
                 if (offer == null) {
                     try { settings(true); close(); check(); } catch (IOException e) { failed(e); close(); }
                 } else { approve(offer); close(); }
             }).dimensions(x, height - 78, w, 20).build());
             addDrawableChild(ButtonWidget.builder(Text.literal(tr("Plus tard", "Later")), button -> close())
                     .dimensions(x, height - 54, w, 20).build());
-            addDrawableChild(ButtonWidget.builder(Text.literal(tr("DÃ©sactiver les mises Ã  jour", "Disable update checks")), button -> {
+            addDrawableChild(ButtonWidget.builder(Text.literal(tr("Désactiver les mises à jour", "Disable update checks")), button -> {
                 try { settings(false); } catch (IOException e) { failed(e); }
                 close();
             }).dimensions(x, height - 30, w, 20).build());
@@ -294,14 +294,15 @@ final class TropimonSelfUpdater {
             return true;
         }
         @Override public void render(DrawContext context, int mouseX, int mouseY, float delta) {
-            renderBackground(context, mouseX, mouseY, delta);
+            // Screen.render draws the background and widgets before our disclosure text.
+            super.render(context, mouseX, mouseY, delta);
             context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 12, 0xFFFFFF);
             String body = offer == null
-                    ? tr("Autoriser ce mod Ã  consulter GitHub au dÃ©marrage (au maximum toutes les 6 heures) ? GitHub reÃ§oit la connexion rÃ©seau. Aucun fichier ne sera tÃ©lÃ©chargÃ© sans un nouvel accord pour la version proposÃ©e. Refuser ne change aucune fonctionnalitÃ© du mod.",
+                    ? tr("Autoriser ce mod à consulter GitHub au démarrage (au maximum toutes les 6 heures) ? GitHub reçoit la connexion réseau. Aucun fichier ne sera téléchargé sans un nouvel accord pour la version proposée. Refuser ne change aucune fonctionnalité du mod.",
                          "Allow this mod to check GitHub at startup (at most every 6 hours)? GitHub receives the network connection. No file will download without separate consent for the offered version. Declining does not affect the mod's features.")
-                    : tr("Version proposÃ©e : ", "Offered version: ") + offer.version + "\n" + offer.jar.name()
+                    : tr("Version proposée : ", "Offered version: ") + offer.version + "\n" + offer.jar.name()
                         + "\n" + tr("Source : GitHub / FastedCorsi / ", "Source: GitHub / FastedCorsi / ") + REPOSITORY
-                        + "\n" + tr("Ce bouton tÃ©lÃ©charge le JAR et son SHA-256. AprÃ¨s vÃ©rification, un petit installateur Java local attend la fermeture de Minecraft, sauvegarde l'ancien JAR puis le remplace. Le launcher reste inchangÃ©. La version sera active au prochain lancement.",
+                        + "\n" + tr("Ce bouton télécharge le JAR et son SHA-256. Après vérification, un petit installateur Java local attend la fermeture de Minecraft, sauvegarde l'ancien JAR puis le remplace. Le launcher reste inchangé. La version sera active au prochain lancement.",
                                    "This button downloads the JAR and its SHA-256. After verification, a small local Java installer waits for Minecraft to close, backs up the old JAR and replaces it. Your launcher stays unchanged. The update is active on the next launch.");
             var lines = textRenderer.wrapLines(Text.literal(body), Math.min(560, width - 40));
             maxScroll = Math.max(0, lines.size() * 11 - (height - 126));
@@ -314,7 +315,6 @@ final class TropimonSelfUpdater {
             context.disableScissor();
             if (scroll < maxScroll) context.drawCenteredTextWithShadow(textRenderer,
                     Text.literal(tr("Défiler pour lire la suite ↓", "Scroll to read more ↓")), width / 2, height - 89, 0xFFD580);
-            super.render(context, mouseX, mouseY, delta);
         }
     }
 

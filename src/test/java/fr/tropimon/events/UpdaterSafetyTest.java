@@ -131,7 +131,7 @@ class UpdaterSafetyTest {
     @Test void standaloneInstallerRunsUsingOnlyJavaAndExistingJsonLibrary() throws Exception {
         Properties p = prepare(false); p.setProperty("parentPid", "2147483647"); p.setProperty("parentStarted", Instant.EPOCH.toString());
         Process process = TropimonSelfUpdater.launchInstaller(temp, p);
-        assertTrue(process.waitFor(20, TimeUnit.SECONDS));
+        awaitTestProcess(process);
         assertEquals(0, process.exitValue(), Files.readString(temp.resolve("install.log")));
         assertEquals("installed\n", Files.readString(temp.resolve("status.txt")));
         assertEquals(p.getProperty("newHash"), TropimonUpdateInstaller.hash(Path.of(p.getProperty("target"))));
@@ -148,14 +148,56 @@ class UpdaterSafetyTest {
         Thread.sleep(500);
         assertTrue(parent.isAlive()); assertTrue(installer.isAlive()); unchanged(p);
         assertTrue(parent.waitFor(10, TimeUnit.SECONDS));
-        assertTrue(installer.waitFor(20, TimeUnit.SECONDS));
+        awaitTestProcess(installer);
         assertEquals(0, installer.exitValue(), Files.readString(temp.resolve("install.log")));
         assertEquals(p.getProperty("newHash"), TropimonUpdateInstaller.hash(Path.of(p.getProperty("target"))));
+    }
+
+    private static void awaitTestProcess(Process process) throws Exception {
+        try {
+            // Three bounded OS process queries plus JVM startup can exceed 20 seconds under load.
+            assertTrue(process.waitFor(90, TimeUnit.SECONDS), "Test-owned installer timed out");
+        } finally {
+            if (process.isAlive()) {
+                process.destroyForcibly(); // Only the synthetic helper created by this test.
+                process.waitFor(10, TimeUnit.SECONDS);
+            }
+        }
     }
 
     public static class WaitingChild {
         public static void main(String[] args) throws Exception { Thread.sleep(3000); }
     }
+
+    @Test void cimRechecksExitedProcessesWithoutIgnoringUnreadableLiveOnes() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(System.getProperty("os.name").startsWith("Windows"));
+        Path instance = temp.resolve("instance with spaces");
+        String readable = "[pscustomobject]@{ProcessId=2147483646;CommandLine='java --gameDir \""
+                + instance.toString().replace("'", "''") + "\"'}";
+        for (String fresh : List.of("return", "[pscustomobject]@{ProcessId=2147483646;CommandLine=$null}", readable, "throw 'Query unavailable'")) {
+            String mock = "function Get-CimInstance { param($ClassName,$Filter) "
+                    + "if ($Filter -eq 'ProcessId=2147483646') { " + fresh + "; return }; "
+                    + "[pscustomobject]@{ProcessId=2147483646;CommandLine=$null} }; ";
+            String encoded = Base64.getEncoder().encodeToString((mock + TropimonUpdateInstaller.windowsProcessQuery())
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_16LE));
+            Path executable = Path.of(System.getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+            Path output = temp.resolve("query.txt");
+            Process process = new ProcessBuilder(executable.toString(), "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", encoded)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD).redirectOutput(output.toFile()).start();
+            awaitTestProcess(process);
+            String json = Files.readString(output).strip();
+            if (fresh.startsWith("throw")) assertNotEquals(0, process.exitValue(), "CIM failures must block installation");
+            else {
+                assertEquals(0, process.exitValue());
+                if (fresh.equals("return")) assertFalse(TropimonUpdateInstaller.windowsSnapshotRunning(json, instance));
+                else if (fresh.equals(readable)) assertTrue(TropimonUpdateInstaller.windowsSnapshotRunning(json, instance));
+                else assertThrows(IOException.class, () -> TropimonUpdateInstaller.windowsSnapshotRunning(json, instance));
+            }
+        }
+        assertThrows(IOException.class, () -> TropimonUpdateInstaller.windowsSnapshotRunning(
+                "[{\"ProcessId\":2147483646,\"CommandLine\":\" \"}]", instance));
+    }
+
     @Test void quotedGameDirArgumentsAndUnrelatedJavaProcessesAreRecognized() throws Exception {
         Path instance = temp.resolve("instance with spaces");
         assertTrue(TropimonUpdateInstaller.sameInstance("java \"--gameDir\" \"" + instance + "\"", instance));

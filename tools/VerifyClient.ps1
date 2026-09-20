@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('standalone', 'integrations')][string]$Mode = 'standalone',
+    [ValidateSet('standalone', 'integrations', 'updater')][string]$Mode = 'standalone',
     [string]$LauncherDirectory = $env:TROPIMON_HOME,
     [string]$CobblemonJar,
     [ValidateRange(960, 3840)][int]$Width = 1400,
@@ -65,7 +65,13 @@ $java = Join-Path $launcher 'runtime/x64/jdk-21.0.6+7/bin/java.exe'
 $optionsPath = Join-Path $run 'options.txt'
 $optionsLines = if (Test-Path -LiteralPath $optionsPath) { @(Get-Content -LiteralPath $optionsPath | Where-Object { $_ -notmatch '^lang:' }) } else { @() }
 [IO.File]::WriteAllLines($optionsPath, [string[]]($optionsLines + "lang:$Language"), [Text.UTF8Encoding]::new($false))
-$arguments = @('-Xmx3G', '-Dtropimon.smoke=true', '-Dfabric.debug.disableErrorGui=true', "-Dtropimon.smoke.language=$Language", '-Dfabric.log.disableAnsi=true',
+$smokeFlag = if ($Mode -eq 'updater') { '-Dupdater.consent.smoke=true' } else { '-Dtropimon.smoke=true' }
+if ($Mode -eq 'updater') {
+    $configDirectory = Join-Path $run 'config'
+    New-Item -ItemType Directory -Force -Path $configDirectory | Out-Null
+    [IO.File]::WriteAllText((Join-Path $configDirectory 'tropimon_events-updater.json'), '{"enabled":true}', [Text.UTF8Encoding]::new($false))
+}
+$arguments = @('-Xmx3G', $smokeFlag, '-Dfabric.debug.disableErrorGui=true', "-Dtropimon.smoke.language=$Language", '-Dfabric.log.disableAnsi=true',
     "-Djava.library.path=$(Join-Path $launcher 'natives')",
     '-cp', ($classpath -join ';'), $loader.mainClass,
     '--username', 'InstrumentTest', '--uuid', '00000000000000000000000000000001',
@@ -75,4 +81,5 @@ $arguments = @('-Xmx3G', '-Dtropimon.smoke=true', '-Dfabric.debug.disableErrorGu
 Push-Location $run
 try { & $java @arguments } finally { Pop-Location }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-if (-not (Select-String -LiteralPath (Join-Path $run "logs/latest.log") -SimpleMatch "TROPIMON_SMOKE_OK" -Quiet)) { throw "Verification incompletement validee : consulter le journal local." }
+$successMarker = if ($Mode -eq 'updater') { 'UPDATER_CONSENT_SMOKE_OK' } else { 'TROPIMON_SMOKE_OK' }
+if (-not (Select-String -LiteralPath (Join-Path $run "logs/latest.log") -SimpleMatch $successMarker -Quiet)) { throw "Verification incompletement validee : consulter le journal local." }
