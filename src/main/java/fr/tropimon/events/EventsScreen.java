@@ -12,12 +12,12 @@ public final class EventsScreen extends Screen {
 
   public void render(DrawContext c, int mouseX, int mouseY, float delta) {
     EventsHud.draw(c, mouseX, mouseY);
-    c.drawCenteredTextWithShadow(
-        textRenderer,
-        "Survole une icône · F6 / Échap : retour au jeu",
-        width / 2,
-        height - 20,
-        0xFFFFFFFF);
+    var lines = textRenderer.wrapLines(Text.literal("Survole une icône · F6 / Échap : retour au jeu"), width - 16);
+    int y = height - 8 - lines.size() * 11;
+    for (var line : lines) {
+      c.drawCenteredTextWithShadow(textRenderer, line, width / 2, y, 0xFFFFFFFF);
+      y += 11;
+    }
   }
 
   public boolean mouseScrolled(double x, double y, double h, double v) {

@@ -112,16 +112,10 @@ final class EventsHud {
   private static void add(List<Text> lines, String text) {
     var mc = MinecraftClient.getInstance();
     int width = Math.max(100, Math.min(280, mc.getWindow().getScaledWidth() - 28));
-    StringBuilder line = new StringBuilder();
-    for (String word : text.replace('\n', ' ').split(" ")) {
-      if (!line.isEmpty() && mc.textRenderer.getWidth(line + " " + word) > width) {
-        lines.add(Text.literal(line.toString()));
-        line.setLength(0);
-      }
-      if (!line.isEmpty()) line.append(' ');
-      line.append(word);
+    for (var line : mc.textRenderer.getTextHandler().wrapLines(
+        Text.literal(text), width, net.minecraft.text.Style.EMPTY)) {
+      lines.add(Text.literal(line.getString()));
     }
-    if (!line.isEmpty()) lines.add(Text.literal(line.toString()));
   }
 
   private static String name(EventState.Kind kind) {
