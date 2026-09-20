@@ -11,6 +11,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /** Reads the system packet even when another mod hides its chat rendering. */
 @Mixin(ClientPlayNetworkHandler.class)
 abstract class SystemMessageMixin {
+  @Inject(method = "sendChatCommand", at = @At("HEAD"))
+  private void manualGymNavigation(String command, CallbackInfo ci) {
+    EventsClient.GYMS.manualCommand(command);
+  }
+
   @Inject(method = "onGameMessage", at = @At("HEAD"))
   private void observe(GameMessageS2CPacket packet, CallbackInfo ci) {
     if (MinecraftClient.getInstance().isOnThread() && !packet.overlay())

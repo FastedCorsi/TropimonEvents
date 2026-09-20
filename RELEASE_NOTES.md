@@ -1,16 +1,12 @@
-# Tropimon Events 0.2.2
+# Tropimon Events 0.2.4
 
 By FastedCorsi
 
 <!-- tropimon-consent-updater:2 -->
 
-- Correction de l'écran de consentement aux mises à jour : texte dessiné après le fond, sans flou superposé, et accents français rétablis en UTF-8.
-- Les boutons de refus, report et fermeture ne déclenchent aucun téléchargement. L'ancien réglage enabled=true ne vaut toujours pas consentement.
-- Conservation du HUD automatique compact : événements détectés uniquement, arènes ouvertes avec carte du type sur leur porte et aucun affichage dans les menus. F6 sert au survol.
-- Conservation de la correction des annonces réseau sans horodatage et de l'installation différée autonome avec sauvegarde.
+- Les miracles Shiny, XP, IV et talent caché apparaissent automatiquement dans le HUD avec les durées transmises par le serveur, y compris les listes en français et en anglais.
+- Les arènes ouvertes sont récupérées automatiquement avec la même demande que le navigateur officiel, sans avoir à ouvrir son menu. L'état est actualisé au plus chaque minute pendant le jeu ; les ouvertures manuelles du navigateur restent disponibles.
+- La carte du type est plus petite et placée dans l'entrée du bâtiment. Les icônes restent masquées dans les menus.
+- Les mises à jour restent soumises à consentement : accord distinct pour la vérification et pour le téléchargement, puis remplacement après fermeture de Minecraft avec sauvegarde.
 
-Validation : compilation contre Cobblemon 1.8.0 et 1.8.1, 38 tests automatisés dont 17 tests de sécurité de l'updater. Vérification visuelle isolée de l'écran de consentement en français à 960 × 600, de l'écran de téléchargement et du défilement ; refus et fermeture sans initialisation réseau ni fichiers de mise à jour. Confidentialité contrôlée sur les sources, accompagnements et deux JAR finaux.
-
-Limites conservées : le Pokémon d'un raid reste inconnu si aucun signal explicite ne l'identifie. Les arènes déjà ouvertes avant connexion peuvent nécessiter le navigateur officiel pour recevoir leur état ; chaque observation est un instantané. Les essais isolés ne constituent pas une validation de cette version dans une partie Tropimon réelle.
-
-Deux JAR LOCAL/partageable identiques. Cette Release contient uniquement le JAR partageable et son SHA-256. La 0.2.1 déjà publiée reste inchangée ; cette correction utilise le canal à consentement et ne devient pas la release latest historique.
+Le Pokémon d'un raid reste inconnu lorsqu'aucun signal explicite ne l'identifie. Les états d'arène sont des instantanés du serveur.

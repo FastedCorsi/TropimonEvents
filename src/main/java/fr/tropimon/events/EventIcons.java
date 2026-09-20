@@ -36,8 +36,8 @@ final class EventIcons {
     int index = GymObservation.TYPES.indexOf(gym.type());
     if (index == 3) index = 4;
     else if (index == 4) index = 3;
-    int width = Math.max(7, size * 10 / 24), height = Math.max(8, size * 12 / 24);
-    int left = x + (size - width) / 2, top = y + size - height - 2;
+    int width = Math.max(3, size * 5 / 24), height = Math.max(3, size * 6 / 24);
+    int left = x + (size - width + 2) / 2, top = y + size * 15 / 24;
     if (gymCardsAvailable) {
       c.drawTexture(
           GYM_CARDS,

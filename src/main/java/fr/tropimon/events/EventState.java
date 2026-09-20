@@ -5,6 +5,9 @@ import java.util.regex.*;
 
 /** Session-local observations, never predictions from a raid schedule. */
 public final class EventState {
+  private static final String BOOST_NAME =
+      "((?:Boost )?(?:Shiny x2|XP x2|IVs \\+10|Talent Caché 10%|Hidden Ability 10%))";
+
   public enum Kind {
     RAID,
     MEGA,
@@ -155,21 +158,19 @@ public final class EventState {
               .matcher(s);
       Matcher boost =
           Pattern.compile(
-                  "^[A-Za-z0-9_]{1,16} (?:triggered a |a déclenché un )(Boost Shiny x2|Boost XP"
-                      + " x2|Boost IVs \\+10|Boost Talent Caché 10%|Boost Hidden Ability 10%)(?:"
+                  "^[A-Za-z0-9_]{1,16} (?:triggered a |a déclenché un )"
+                      + BOOST_NAME
+                      + "(?:"
                       + " for an hour| for one hour| pendant une heure) ?!$")
               .matcher(s);
       Matcher listing =
-          Pattern.compile(
-                  "^- (Boost Shiny x2|Boost XP x2|Boost IVs \\+10|Boost Talent Caché 10%|Boost"
-                      + " Hidden Ability 10%) \\((?:fin dans|end in) (.+)\\)$")
-              .matcher(s);
+          Pattern.compile("^- " + BOOST_NAME + " \\((?:fin dans|end in) (.+)\\)$").matcher(s);
       Matcher extension =
           Pattern.compile(
                   "^[A-Za-z0-9_]{1,16} (?:extended the duration of |has increased the duration of"
-                      + " |a augmenté la durée du |a prolongé la durée du )(Boost Shiny x2|Boost XP"
-                      + " x2|Boost IVs \\+10|Boost Talent Caché 10%|Boost Hidden Ability"
-                      + " 10%).*\\((?:fin dans|end in) (.+)\\)[.!]?$")
+                      + " |a augmenté la durée du |a prolongé la durée du )"
+                      + BOOST_NAME
+                      + " \\((?:fin dans|end in) (.+)\\)[.!]?$")
               .matcher(s);
       if (clear.matches()) {
         kind = Kind.CLEAR;
@@ -210,17 +211,19 @@ public final class EventState {
   }
 
   static long parseDuration(String s) {
+    s = s.strip().toLowerCase(Locale.ROOT);
     Matcher m =
-        Pattern.compile("(\\d{1,4})\\s*(h|min|m|s)", Pattern.CASE_INSENSITIVE).matcher(s.strip());
+        Pattern.compile("(\\d{1,4})\\s*(hours?|heures?|h|minutes?|min|m|secondes?|seconds?|s)")
+            .matcher(s);
     long seconds = 0;
     int pos = 0;
     while (m.find()) {
-      if (!s.substring(pos, m.start()).isBlank()) return -1;
+      String separator = s.substring(pos, m.start()).strip();
+      if (!(separator.isEmpty() || pos > 0 && separator.matches(",|(?:,\\s*)?(?:and|et)")))
+        return -1;
       seconds +=
           Long.parseLong(m.group(1))
-              * (m.group(2).equalsIgnoreCase("h")
-                  ? 3600
-                  : m.group(2).equalsIgnoreCase("s") ? 1 : 60);
+              * (m.group(2).startsWith("h") ? 3600 : m.group(2).startsWith("s") ? 1 : 60);
       pos = m.end();
     }
     return s.substring(pos).isBlank() && seconds <= 604800 ? seconds * 1000 : -1;

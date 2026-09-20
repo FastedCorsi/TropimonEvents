@@ -2,6 +2,7 @@ param(
     [ValidateSet('standalone', 'integrations', 'updater')][string]$Mode = 'standalone',
     [string]$LauncherDirectory = $env:TROPIMON_HOME,
     [string]$CobblemonJar,
+    [string]$OfficialResourcesJar,
     [ValidateRange(960, 3840)][int]$Width = 1400,
     [ValidateRange(600, 2160)][int]$Height = 900,
     [ValidateSet('fr_fr', 'en_us')][string]$Language = 'fr_fr',
@@ -63,7 +64,20 @@ foreach ($library in @($loader.libraries) + @($version.libraries)) {
 $classpath.Add((Join-Path $launcher 'client.jar'))
 $java = Join-Path $launcher 'runtime/x64/jdk-21.0.6+7/bin/java.exe'
 $optionsPath = Join-Path $run 'options.txt'
-$optionsLines = if (Test-Path -LiteralPath $optionsPath) { @(Get-Content -LiteralPath $optionsPath | Where-Object { $_ -notmatch '^lang:' }) } else { @() }
+$optionsLines = if (Test-Path -LiteralPath $optionsPath) { @(Get-Content -LiteralPath $optionsPath | Where-Object { $_ -notmatch '^lang:|^resourcePacks:' }) } else { @() }
+if ($OfficialResourcesJar) {
+    # Local visual fixture only: read the installed artwork, never include it in a delivery.
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $pack = Join-Path $run 'resourcepacks/official-gym-fixture'
+    $asset = 'assets/tropimodclient/guis/navigator/competition/gymlist/gymlist.png'
+    $target = Join-Path $pack $asset
+    New-Item -ItemType Directory -Force (Split-Path -Parent $target) | Out-Null
+    $archive = [IO.Compression.ZipFile]::OpenRead($OfficialResourcesJar)
+    try { [IO.Compression.ZipFileExtensions]::ExtractToFile($archive.GetEntry($asset), $target, $true) }
+    finally { $archive.Dispose() }
+    [IO.File]::WriteAllText((Join-Path $pack 'pack.mcmeta'), '{"pack":{"pack_format":34,"description":"Local installed gym artwork fixture"}}')
+    $optionsLines += 'resourcePacks:["vanilla","file/official-gym-fixture"]'
+}
 [IO.File]::WriteAllLines($optionsPath, [string[]]($optionsLines + "lang:$Language"), [Text.UTF8Encoding]::new($false))
 $smokeFlag = if ($Mode -eq 'updater') { '-Dupdater.consent.smoke=true' } else { '-Dtropimon.smoke=true' }
 if ($Mode -eq 'updater') {

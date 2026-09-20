@@ -6,6 +6,29 @@ import org.junit.jupiter.api.Test;
 
 class EventStateTest {
   @Test
+  void liveMiracleFormatsAndWrittenDurations() {
+    var s = new EventState();
+    assertTrue(s.accept("- Shiny x2 (end in 1 hour, 17 minutes and 53 seconds)", true, 1000));
+    assertTrue(s.accept("- XP x2 (end in 20 minutes and 31 seconds)", true, 1000));
+    assertTrue(s.accept("- Talent Caché 10% (end in 18 minutes and 9 seconds)", true, 1000));
+    assertTrue(s.accept("- IVs +10 (end in 18 minutes and 10 seconds)", true, 1000));
+    assertEquals(4, s.visible(1000).size());
+    assertEquals(4674000, s.visible(1000).getFirst().end());
+    assertEquals(4673000, EventState.parseDuration("1 heure, 17 minutes et 53 secondes"));
+    assertEquals(1000, EventState.parseDuration("1 second"));
+    assertEquals(-1, EventState.parseDuration("1 hour junk 2 seconds"));
+    assertTrue(s.accept("TestPlayer triggered a XP x2 for one hour !", true, 2000));
+    assertTrue(
+        s.accept(
+            "TestPlayer a augmenté la durée du Shiny x2 (fin dans 2 heures et 3 secondes)",
+            true,
+            3000));
+    assertFalse(s.accept("TestPlayer: - XP x2 (end in 20 minutes)", true, 4000));
+    assertFalse(s.accept("- XP x2 (end in 20 minutes)", false, 4000));
+    assertTrue(s.visible(8000000).isEmpty());
+  }
+
+  @Test
   void rawNetworkAnnouncementsDoNotRequireClientTimestamp() {
     var s = new EventState();
     assertTrue(

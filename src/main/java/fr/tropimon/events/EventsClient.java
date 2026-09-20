@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 public final class EventsClient implements ClientModInitializer {
   public static final EventState STATE = new EventState();
+  public static final GymRefresh GYMS = new GymRefresh();
   static KeyBinding openKey;
   private static final net.minecraft.network.packet.s2c.play.BossBarS2CPacket.Consumer RAID_BARS =
       new net.minecraft.network.packet.s2c.play.BossBarS2CPacket.Consumer() {
@@ -51,6 +52,16 @@ public final class EventsClient implements ClientModInitializer {
                 "category.tropimon_events"));
     ClientTickEvents.END_CLIENT_TICK.register(
         c -> {
+          if (c.player != null
+              && c.getNetworkHandler() != null
+              && STATE.serverRecognized
+              && c.currentScreen == null
+              && net.fabricmc.loader.api.FabricLoader.getInstance().isModLoaded("tropimodclient")
+              && GYMS.due(System.currentTimeMillis())) {
+            GYMS.request(
+                System.currentTimeMillis(),
+                () -> c.getNetworkHandler().sendChatCommand("gym open"));
+          }
           while (openKey.wasPressed()) {
             if (c.currentScreen != null && !(c.currentScreen instanceof EventsScreen)) continue;
             EventsHud.scroll = 0;
@@ -69,6 +80,7 @@ public final class EventsClient implements ClientModInitializer {
   }
 
   private static void reset() {
+    GYMS.reset(System.currentTimeMillis());
     STATE.reset();
     EventIcons.reset();
     EventsHud.scroll = 0;

@@ -16,7 +16,7 @@ import net.minecraft.world.level.LevelInfo;
 
 /** Isolated synthetic world only; excluded from all delivery JARs. */
 public final class SmokeClient implements ClientModInitializer {
-  int ticks, stage = -1;
+  int ticks, stage = -1, scale = 1;
   long start;
   boolean joined;
   net.minecraft.client.gui.screen.Screen screen;
@@ -81,15 +81,23 @@ public final class SmokeClient implements ClientModInitializer {
           joined = true;
           ticks = 0;
         });
-    net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback.EVENT.register(
-        (context, counter) -> {
-          // Deterministic hover even when the isolated window does not own desktop focus.
-          if (stage == 3) EventsHud.draw(context, 18, 62);
+    net.fabricmc.fabric.api.client.screen.v1.ScreenEvents.AFTER_INIT.register(
+        (client, opened, width, height) -> {
+          if (opened instanceof EventsScreen)
+            net.fabricmc.fabric.api.client.screen.v1.ScreenEvents.afterRender(opened).register(
+                (rendered, context, mouseX, mouseY, delta) -> EventsHud.draw(context, 102, 62));
         });
     net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playS2C()
         .register(EventFixture.ID, EventFixture.CODEC);
     net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playS2C()
         .register(GymFixture.ID, GymFixture.CODEC);
+    net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.registerGlobalReceiver(
+        GymFixture.ID,
+        (payload, context) ->
+            context
+                .client()
+                .setScreen(
+                    new fr.erusel.tropimodclient.client.gui.gym.navigator.GymNavigatorScreen()));
     net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playS2C()
         .register(TerminalFixture.ID, TerminalFixture.CODEC);
     start = System.nanoTime();
@@ -160,6 +168,9 @@ public final class SmokeClient implements ClientModInitializer {
                 require(
                     EventsClient.STATE.name.equals("Festival de vérification"),
                     "official event wire observed through real decoder");
+                EventsClient.GYMS.request(
+                    System.currentTimeMillis(),
+                    () -> client.getNetworkHandler().sendChatCommand("gym open"));
                 client
                     .getServer()
                     .submit(
@@ -171,7 +182,10 @@ public final class SmokeClient implements ClientModInitializer {
                                   .getPlayer(client.player.getUuid());
                           for (String text :
                               List.of(
-                                  " TestPlayer triggered a Boost Shiny x2 for an hour !",
+                                  "- Shiny x2 (end in 1 hour, 17 minutes and 53 seconds)",
+                                  "- XP x2 (end in 20 minutes and 31 seconds)",
+                                  "- Talent Caché 10% (end in 18 minutes and 9 seconds)",
+                                  "- IVs +10 (end in 18 minutes and 10 seconds)",
                                   " TestPlayer a déclenché un Mega Raid ! (Clique pour te"
                                       + " téléporter)"))
                             player.networkHandler.sendPacket(
@@ -201,9 +215,15 @@ public final class SmokeClient implements ClientModInitializer {
               }
               case 2 -> {
                 require(
-                    EventsClient.STATE.visible(System.currentTimeMillis()).size() == 4,
+                    EventsClient.STATE.visible(System.currentTimeMillis()).size() == 7,
                     "actual system message packets detected");
-                require(client.currentScreen == null, "HUD without opening F6");
+                require(client.currentScreen == null, "automatic gym response never opens menu");
+                EventsClient.GYMS.request(System.currentTimeMillis(), () -> {});
+                client.getNetworkHandler().sendChatCommand("gym open");
+                client.setScreen(
+                    new fr.erusel.tropimodclient.client.gui.gym.navigator.GymNavigatorScreen());
+                require(client.currentScreen != null, "manual gym menu preserved");
+                client.setScreen(null);
                 shot(client, "events");
                 require(
                     EventsClient.STATE.gyms.size() == 2
@@ -221,6 +241,35 @@ public final class SmokeClient implements ClientModInitializer {
               }
               case 3 -> {
                 shot(client, "arena-tooltip");
+                client.options.getGuiScale().setValue(scale);
+                org.lwjgl.glfw.GLFW.glfwSetWindowSize(client.getWindow().getHandle(), 1400, 1000);
+                client.onResolutionChanged();
+                stage = 5;
+                ticks = 0;
+              }
+              case 5 -> {
+                require(
+                    client.getWindow().getScaleFactor() == scale, "effective GUI scale " + scale);
+                shot(client, "gui-" + scale);
+                if (++scale <= 4) {
+                  client.options.getGuiScale().setValue(scale);
+                  client.onResolutionChanged();
+                } else {
+                  org.lwjgl.glfw.GLFW.glfwSetWindowSize(client.getWindow().getHandle(), 640, 480);
+                  stage = 6;
+                }
+                ticks = 0;
+              }
+              case 6 -> {
+                require(
+                    client.getWindow().getScaleFactor() == 2,
+                    "small window clamps requested GUI 4 to effective 2");
+                shot(client, "small-window");
+                require(screen.mouseScrolled(18, 90, 0, -1), "tooltip scroll handled");
+                require(
+                    screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_F6, 0, 0),
+                    "F6 closes inspection");
+                require(client.currentScreen == null, "F6 returns to automatic HUD");
                 EventsClient.STATE.reset();
                 require(
                     EventsClient.STATE.visible(System.currentTimeMillis()).isEmpty(),

@@ -41,11 +41,13 @@ abstract class RegionPacketMixin {
       client.execute(
           () -> {
             if (client.getNetworkHandler() != null
-                && client.getNetworkHandler().getConnection() == connection)
+                && client.getNetworkHandler().getConnection() == connection) {
+              if (pending.id().equals(EventWire.REGION)) EventsClient.officialRegion();
               pending.apply(
                   EventsClient.STATE,
                   client.player == null ? null : client.player.getUuid(),
                   System.currentTimeMillis());
+            }
           });
     }
     return decoded;

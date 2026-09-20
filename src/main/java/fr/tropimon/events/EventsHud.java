@@ -81,7 +81,7 @@ final class EventsHud {
         add(hovered, "Champion : " + (gym.leader().isBlank() ? "non renseigné" : gym.leader()));
         add(hovered, gym.battle());
         add(hovered, age(now, gym.observed()));
-        add(hovered, "Instantané serveur · ouvre le menu officiel pour actualiser.");
+        add(hovered, "Instantané serveur · actualisation automatique chaque minute.");
       }
     }
     if (hovered != null) {
@@ -112,8 +112,10 @@ final class EventsHud {
   private static void add(List<Text> lines, String text) {
     var mc = MinecraftClient.getInstance();
     int width = Math.max(100, Math.min(280, mc.getWindow().getScaledWidth() - 28));
-    for (var line : mc.textRenderer.getTextHandler().wrapLines(
-        Text.literal(text), width, net.minecraft.text.Style.EMPTY)) {
+    for (var line :
+        mc.textRenderer
+            .getTextHandler()
+            .wrapLines(Text.literal(text), width, net.minecraft.text.Style.EMPTY)) {
       lines.add(Text.literal(line.getString()));
     }
   }

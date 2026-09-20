@@ -5,7 +5,8 @@
   "client": [
     "SystemMessageMixin",
     "RaidBarMixin",
-    "RegionPacketMixin"
+    "RegionPacketMixin",
+    "GymScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 0

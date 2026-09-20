@@ -1,6 +1,6 @@
 # Tropimon Events
 
-By FastedCorsi — 0.2.3
+By FastedCorsi — 0.2.4
 
 Des icônes Pokémon/Cobblemon dans le HUD, sans tableau de bord ni interface de combat. **F6** libère le curseur pour consulter les informations au survol ; F6 ou Échap rend la main au jeu. La touche est reconfigurable. La molette parcourt les longues infobulles.
 
@@ -12,7 +12,7 @@ L'affichage est automatique : aucune touche nécessaire. Les icônes mesurent 24
 - Boosts chromatique, XP, IV et talent caché, nettoyage au sol et événement saisonnier : pictogrammes originaux en couleurs. Les durées viennent des annonces serveur ; nom, description, objectifs, points, monnaie et rang de l'événement restent consultables au survol.
 - Arènes ouvertes : bâtiment avec une petite carte du type sur la porte, champion, dernière observation et état du défi lorsque transmis. Les cartes sont lues dans les ressources du client officiel installé, sans redistribution. Une arène fermée disparaît du HUD dès réception de sa fermeture. Le défi pour le titre reste distinct des défis de badge et de maîtrise.
 
-Les données d'arène sont observées passivement dans les paquets officiels du navigateur et des terminaux. Les annonces d'ouverture/fermeture contenant explicitement un type reconnu sont aussi prises en compte en français et en anglais. Ouvrir le navigateur peut être nécessaire pour les arènes déjà ouvertes à la connexion. Chaque état reste un **instantané**, pas une surveillance globale en temps réel ; une nouvelle liste invalide l'ancien état de match. Aucune commande, téléportation ou inscription automatique.
+Le mod demande automatiquement la liste des arènes avec la même commande que le navigateur officiel, cinq secondes après l'arrivée puis au plus une fois par minute lorsque le joueur n'est pas dans un menu. La réponse de cette demande actualise le HUD sans ouvrir le navigateur. Les ouvertures manuelles restent prioritaires ; une demande sans réponse n'est pas répétée en boucle. Les données des terminaux restent observées passivement. Les annonces d'ouverture/fermeture contenant explicitement un type reconnu sont aussi prises en compte en français et en anglais. Les arènes déjà ouvertes à la connexion sont ainsi récupérées sans ouverture manuelle. Chaque état reste un **instantané**, pas une surveillance globale en temps réel ; une nouvelle liste invalide l'ancien état de match. Seule la consultation de la liste est automatique ; aucune téléportation ni inscription n'est déclenchée.
 
 Les annonces sont lues avant le filtrage du chat. L'heure ajoutée par les mods de présentation est facultative ; elle n'est pas exigée dans les paquets bruts. Les séparateurs de discussion des joueurs sont conservés pour rejeter les annonces citées dans le chat.
 
@@ -35,7 +35,7 @@ Tests unitaires, vérifications d'installation différée et contrôle de confid
 
 ## Livraison
 
-Deux JAR identiques dans `build/release/0.2.3/local` et `build/release/0.2.3/shareable`, accompagnés de SHA-256. Ne pas charger les deux exemplaires. La livraison LOCAL inclut un installateur autonome pour le stockage géré : `mods-user`, `mods` et `user-mods-tracked.json`. Il préserve les autres mods et leur désactivation, attend la fermeture du jeu, vérifie les empreintes et sauvegarde les anciens fichiers hors des dossiers chargés. Le launcher peut rester ouvert.
+Deux JAR identiques dans `build/release/0.2.4/local` et `build/release/0.2.4/shareable`, accompagnés de SHA-256. Ne pas charger les deux exemplaires. La livraison LOCAL inclut un installateur autonome pour le stockage géré : `mods-user`, `mods` et `user-mods-tracked.json`. Il préserve les autres mods et leur désactivation, attend la fermeture du jeu, vérifie les empreintes et sauvegarde les anciens fichiers hors des dossiers chargés. Le launcher peut rester ouvert.
 
 L'auto-update autonome consulte uniquement la Release officielle de ce dépôt, avec vérification SHA-256/id/version, préparation hors des mods et remplacement différé sous Windows. Sur un profil géré, il met à jour les deux copies sous leur nom déjà suivi, vérifie que le suivi reste inchangé et refuse une copie divergente ou une cible modifiée. Il ne répare pas rétroactivement les anciennes versions distribuées. Vérification espacée d'au moins six heures ; désactivation locale dans `config/tropimon_events-updater.json`.
 
