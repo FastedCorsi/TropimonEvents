@@ -36,8 +36,8 @@ final class EventIcons {
     int index = GymObservation.TYPES.indexOf(gym.type());
     if (index == 3) index = 4;
     else if (index == 4) index = 3;
-    int width = Math.max(3, size * 5 / 24), height = Math.max(3, size * 6 / 24);
-    int left = x + (size - width + 2) / 2, top = y + size * 15 / 24;
+    int width = Math.max(2, size * 4 / 24), height = Math.max(3, size * 5 / 24);
+    int left = x + size * 11 / 24, top = y + size * 14 / 24;
     if (gymCardsAvailable) {
       c.drawTexture(
           GYM_CARDS,
@@ -60,6 +60,20 @@ final class EventIcons {
   static void tile(DrawContext c, int tile, int x, int y, int size) {
     c.drawTexture(
         ATLAS, x, y, size, size, (tile % 4) * 313.5F, (tile / 4) * 313.5F, 314, 314, 1254, 1254);
+  }
+
+  static void baron(DrawContext c, ItemStack portrait, int x, int y, int size) {
+    c.fill(x, y, x + size, y + size, 0x801E0707);
+    c.drawBorder(x, y, size, size, 0xFFFF3535);
+    c.getMatrices().push();
+    try {
+      float inner = size * .82F;
+      c.getMatrices().translate(x + (size - inner) / 2, y + 1, 0);
+      c.getMatrices().scale(inner / 16, inner / 16, 1);
+      c.drawItem(portrait, 0, 0);
+    } finally {
+      c.getMatrices().pop();
+    }
   }
 
   static void draw(DrawContext c, EventState.Kind kind, int x, int y, int size) {

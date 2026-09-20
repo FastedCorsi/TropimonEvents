@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('standalone', 'integrations', 'updater')][string]$Mode = 'standalone',
+    [ValidateSet('standalone', 'integrations', 'updater', 'barons', 'barons-no-xaero')][string]$Mode = 'standalone',
     [string]$LauncherDirectory = $env:TROPIMON_HOME,
     [string]$CobblemonJar,
     [string]$OfficialResourcesJar,
@@ -43,6 +43,10 @@ foreach ($pattern in $patterns) {
         Where-Object { $_.Name -notlike '*BetterPC*' } |
         ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $mods }
 }
+if ($Mode -eq 'barons') {
+    Get-ChildItem (Join-Path $launcher 'profiles/stable/instance/mods') -Filter '*xaero*.jar' |
+        ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $mods }
+}
 $version = Get-Content (Join-Path $launcher '1.21.1.json') -Raw | ConvertFrom-Json
 $loader = Get-Content (Join-Path $launcher 'fabric-loader-0.17.3-1.21.1.json') -Raw | ConvertFrom-Json
 $classpath = [Collections.Generic.List[string]]::new()
@@ -78,6 +82,19 @@ if ($OfficialResourcesJar) {
     [IO.File]::WriteAllText((Join-Path $pack 'pack.mcmeta'), '{"pack":{"pack_format":34,"description":"Local installed gym artwork fixture"}}')
     $optionsLines += 'resourcePacks:["vanilla","file/official-gym-fixture"]'
 }
+if ($Mode -eq 'barons') {
+    $icons = Join-Path (Split-Path -Parent $project) 'E19-CobblemonMinimapIcons/dist/E19-Cobblemon-Minimap-Icons-1.4.4-Barons-1.8.1.zip'
+    if (!(Test-Path -LiteralPath $icons)) { throw 'Local icon fixture is missing.' }
+    New-Item -ItemType Directory -Force (Join-Path $run 'resourcepacks') | Out-Null
+    Copy-Item -LiteralPath $icons -Destination (Join-Path $run 'resourcepacks/baron-icons.zip')
+    $optionsLines = @($optionsLines | Where-Object { $_ -notmatch '^resourcePacks:' })
+    $optionsLines += 'resourcePacks:["vanilla","file/baron-icons.zip"]'
+    $xaeroConfig = Join-Path $run 'config'
+    New-Item -ItemType Directory -Force $xaeroConfig | Out-Null
+    # Explicit icons in the isolated fixture; never change the player's settings.
+    [IO.File]::WriteAllText((Join-Path $xaeroConfig 'xaerominimap_entities.json'), '{"hardInclude":"anything","includeList":[],"includeListInSuperCategory":true,"excludeMode":"ONLY","excludeList":[],"name":"gui.xaero_entity_category_root","protection":true,"settingOverrides":{"displayed":true,"icons":2.0,"iconScale":2.0,"color":14.0},"subCategories":[]}', [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $xaeroConfig 'xaerominimap.txt'), "allowInternetAccess:false`nupdateNotification:false`nmodule;id=xaerominimap:minimap;active=true;x=0;y=0;centered=false;fromRight=true;fromBottom=false;flippedVer=false;flippedHor=false;`n", [Text.UTF8Encoding]::new($false))
+}
 [IO.File]::WriteAllLines($optionsPath, [string[]]($optionsLines + "lang:$Language"), [Text.UTF8Encoding]::new($false))
 $smokeFlag = if ($Mode -eq 'updater') { '-Dupdater.consent.smoke=true' } else { '-Dtropimon.smoke=true' }
 if ($Mode -eq 'updater') {
@@ -86,6 +103,7 @@ if ($Mode -eq 'updater') {
     [IO.File]::WriteAllText((Join-Path $configDirectory 'tropimon_events-updater.json'), '{"enabled":true}', [Text.UTF8Encoding]::new($false))
 }
 $arguments = @('-Xmx3G', $smokeFlag, '-Dfabric.debug.disableErrorGui=true', "-Dtropimon.smoke.language=$Language", '-Dfabric.log.disableAnsi=true',
+    "-Dtropimon.smoke.barons=$($Mode.StartsWith('barons').ToString().ToLowerInvariant())",
     "-Djava.library.path=$(Join-Path $launcher 'natives')",
     '-cp', ($classpath -join ';'), $loader.mainClass,
     '--username', 'InstrumentTest', '--uuid', '00000000000000000000000000000001',

@@ -6,7 +6,9 @@
     "SystemMessageMixin",
     "RaidBarMixin",
     "RegionPacketMixin",
-    "GymScreenMixin"
+    "GymScreenMixin",
+    "XaeroBaronMixin",
+    "XaeroBaronColorMixin"
   ],
   "injectors": {
     "defaultRequire": 0

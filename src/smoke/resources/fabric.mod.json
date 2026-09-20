@@ -6,6 +6,7 @@
     "By FastedCorsi"
   ],
   "environment": "client",
+  "mixins": ["events-smoke.mixins.json"],
   "entrypoints": {
     "client": [
       "fr.tropimon.events.SmokeClient",

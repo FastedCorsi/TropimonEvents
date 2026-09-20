@@ -7,4 +7,6 @@ Cobblemon, Minecraft et Fabric restent la propriété de leurs auteurs respectif
 
 Les cartes de type d'arène sont affichées depuis les ressources du client officiel Tropimon installé. Crédit aux auteurs de Tropimon/TropimodClient ; ces images ne sont pas copiées dans le mod. Un libellé remplace la carte si la ressource est absente.
 
+La compatibilité facultative Xaero utilise les icônes choisies par Xaero's Minimap et Xaero's World Map, par Xaero. Aucune image de Xaero ni de pack d'icônes tiers n'est redistribuée ; le contour est produit par Events.
+
 Aircompressor 0.27 (Airlift, Apache License 2.0) est inclus pour décoder les paquets Zstandard du protocole officiel. Crédits et licence du JAR original conservés. https://github.com/airlift/aircompressor

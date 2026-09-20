@@ -19,8 +19,24 @@ public final class SmokeClient implements ClientModInitializer {
   int ticks, stage = -1, scale = 1;
   long start;
   boolean joined;
-  net.minecraft.client.gui.screen.Screen screen;
+  volatile int visits;
+  volatile boolean visitorRequest;
   BlockPos habitatPos;
+
+  record RegionFixture(String server) implements net.minecraft.network.packet.CustomPayload {
+    static final Id<RegionFixture> ID =
+        new Id<>(net.minecraft.util.Identifier.of(EventWire.REGION));
+    static final net.minecraft.network.codec.PacketCodec<
+            net.minecraft.network.RegistryByteBuf, RegionFixture>
+        CODEC =
+            net.minecraft.network.codec.PacketCodec.of(
+                (value, buffer) -> buffer.writeString(value.server()),
+                buffer -> new RegionFixture(buffer.readString()));
+
+    public Id<? extends net.minecraft.network.packet.CustomPayload> getId() {
+      return ID;
+    }
+  }
 
   record GymFixture(String json) implements net.minecraft.network.packet.CustomPayload {
     static final Id<GymFixture> ID = new Id<>(net.minecraft.util.Identifier.of(EventWire.GYMS));
@@ -76,19 +92,28 @@ public final class SmokeClient implements ClientModInitializer {
   @Override
   public void onInitializeClient() {
     if (!Boolean.getBoolean("tropimon.smoke")) return;
+    net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playC2S()
+        .register(
+            fr.tropimon.tropimodcore.networking.payload.teleport.WarpRequestPayload.ID,
+            fr.tropimon.tropimodcore.networking.payload.teleport.WarpRequestPayload.CODEC);
+    net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking.registerGlobalReceiver(
+        fr.tropimon.tropimodcore.networking.payload.teleport.WarpRequestPayload.ID,
+        (payload, context) -> {
+          visits++;
+          visitorRequest =
+              payload.request().gym().equals("FIRE")
+                  && payload.request().warp().equals("VISITOR")
+                  && payload.request().player().equals(context.player().getUuid());
+        });
     net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.JOIN.register(
         (handler, sender, client) -> {
           joined = true;
           ticks = 0;
         });
-    net.fabricmc.fabric.api.client.screen.v1.ScreenEvents.AFTER_INIT.register(
-        (client, opened, width, height) -> {
-          if (opened instanceof EventsScreen)
-            net.fabricmc.fabric.api.client.screen.v1.ScreenEvents.afterRender(opened).register(
-                (rendered, context, mouseX, mouseY, delta) -> EventsHud.draw(context, 102, 62));
-        });
     net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playS2C()
         .register(EventFixture.ID, EventFixture.CODEC);
+    net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playS2C()
+        .register(RegionFixture.ID, RegionFixture.CODEC);
     net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playS2C()
         .register(GymFixture.ID, GymFixture.CODEC);
     net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking.registerGlobalReceiver(
@@ -140,6 +165,11 @@ public final class SmokeClient implements ClientModInitializer {
               }
               case 0 -> {
                 if (!joined || client.player == null) return;
+                if (Boolean.getBoolean("tropimon.smoke.barons")) {
+                  BaronSmoke.start(client);
+                  stage = 99;
+                  return;
+                }
                 long end = System.currentTimeMillis() / 1000 + 7200;
                 client
                     .getServer()
@@ -156,6 +186,14 @@ public final class SmokeClient implements ClientModInitializer {
                                   + end
                                   + ",\"eventObjectives\":{\"HUNTS\":25,\"RAIDS\":10}}";
                           player.networkHandler.sendPacket(
+                              new net.minecraft.network.packet.s2c.play.GameMessageS2CPacket(
+                                  net.minecraft.text.Text.literal(
+                                      "- Shiny x2 (end in 1 hour, 33 minutes and 42 seconds)"),
+                                  false));
+                          player.networkHandler.sendPacket(
+                              new net.minecraft.network.packet.s2c.common.CustomPayloadS2CPacket(
+                                  new RegionFixture("synthetic-region")));
+                          player.networkHandler.sendPacket(
                               new net.minecraft.network.packet.s2c.common.CustomPayloadS2CPacket(
                                   new EventFixture(json)));
                         })
@@ -165,6 +203,14 @@ public final class SmokeClient implements ClientModInitializer {
                 ticks = 0;
               }
               case 1 -> {
+                require(
+                    EventsClient.STATE.visible(System.currentTimeMillis()).stream()
+                        .anyMatch(n -> n.kind() == EventState.Kind.SHINY),
+                    "Shiny packet received before region recognition survives");
+                require(
+                    java.util.Arrays.stream(client.options.allKeys)
+                        .noneMatch(k -> k.getTranslationKey().equals("key.tropimon_events.open")),
+                    "no Events F6 binding remains");
                 require(
                     EventsClient.STATE.name.equals("Festival de vérification"),
                     "official event wire observed through real decoder");
@@ -232,15 +278,11 @@ public final class SmokeClient implements ClientModInitializer {
                 require(
                     EventsClient.STATE.raidBoss(EventState.Kind.RAID).pokemon().equals("Charizard"),
                     "explicit raid boss network label decoded");
-                // F6 points at the first arena; do not operate a real server.
-                screen = new EventsScreen();
-                client.setScreen(screen);
-                org.lwjgl.glfw.GLFW.glfwSetCursorPos(client.getWindow().getHandle(), 36, 124);
                 stage = 3;
                 ticks = 0;
               }
               case 3 -> {
-                shot(client, "arena-tooltip");
+                shot(client, "automatic-hud");
                 client.options.getGuiScale().setValue(scale);
                 org.lwjgl.glfw.GLFW.glfwSetWindowSize(client.getWindow().getHandle(), 1400, 1000);
                 client.onResolutionChanged();
@@ -251,9 +293,61 @@ public final class SmokeClient implements ClientModInitializer {
                 require(
                     client.getWindow().getScaleFactor() == scale, "effective GUI scale " + scale);
                 shot(client, "gui-" + scale);
-                if (++scale <= 4) {
+                client.setScreen(
+                    new net.minecraft.client.gui.screen.ChatScreen("message conservé"));
+                net.fabricmc.fabric.api.client.screen.v1.ScreenEvents.afterRender(
+                        client.currentScreen)
+                    .register(
+                        (screen, context, mouseX, mouseY, delta) ->
+                            EventsHud.tooltip(context, 94, 54));
+                stage = 7;
+                ticks = 0;
+              }
+              case 7 -> {
+                shot(client, "chat-gui-" + scale);
+                var chat = client.currentScreen;
+                var click =
+                    net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents.allowMouseClick(chat)
+                        .invoker();
+                require(
+                    click.allowMouseClick(chat, 1, 1, 0),
+                    "outside click remains available to chat");
+                require(!EventsHud.scroll(1, 1, -1), "outside wheel remains available to chat");
+                boolean found = false;
+                for (int y = 24; y < 160 && !found; y++)
+                  for (int x = 8; x < 124; x++) {
+                    var gym = EventsHud.gymAt(x, y);
+                    if (gym == null) continue;
+                    require(gym.type().equals("FIRE"), "closed gym is never clickable");
+                    client.options.hudHidden = true;
+                    require(click.allowMouseClick(chat, x, y, 0), "hidden HUD cannot teleport");
+                    client.options.hudHidden = false;
+                    require(click.allowMouseClick(chat, x, y, 1), "right click does not teleport");
+                    require(
+                        !click.allowMouseClick(chat, x, y, 0),
+                        "left gym click consumed at GUI " + scale);
+                    require(client.currentScreen == null, "successful gym request closes chat");
+                    found = true;
+                    break;
+                  }
+                require(found, "gym hit area found at GUI " + scale);
+                stage = 8;
+                ticks = 0;
+              }
+              case 8 -> {
+                require(
+                    visits == scale && visitorRequest,
+                    "exactly one official visitor request received per click");
+                if (scale == 5) {
+                  EventsClient.STATE.reset();
+                  require(
+                      EventsClient.STATE.visible(System.currentTimeMillis()).isEmpty(),
+                      "session reset");
+                  stage = 4;
+                } else if (++scale <= 4) {
                   client.options.getGuiScale().setValue(scale);
                   client.onResolutionChanged();
+                  stage = 5;
                 } else {
                   org.lwjgl.glfw.GLFW.glfwSetWindowSize(client.getWindow().getHandle(), 640, 480);
                   stage = 6;
@@ -265,16 +359,10 @@ public final class SmokeClient implements ClientModInitializer {
                     client.getWindow().getScaleFactor() == 2,
                     "small window clamps requested GUI 4 to effective 2");
                 shot(client, "small-window");
-                require(screen.mouseScrolled(18, 90, 0, -1), "tooltip scroll handled");
-                require(
-                    screen.keyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_F6, 0, 0),
-                    "F6 closes inspection");
-                require(client.currentScreen == null, "F6 returns to automatic HUD");
-                EventsClient.STATE.reset();
-                require(
-                    EventsClient.STATE.visible(System.currentTimeMillis()).isEmpty(),
-                    "session reset");
-                stage = 4;
+                require(client.currentScreen == null, "HUD requires no screen or key binding");
+                client.setScreen(
+                    new net.minecraft.client.gui.screen.ChatScreen("message conservé"));
+                stage = 7;
                 ticks = 0;
               }
               case 4 -> {

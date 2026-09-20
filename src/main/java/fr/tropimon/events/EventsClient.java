@@ -2,19 +2,15 @@ package fr.tropimon.events;
 
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
-import org.lwjgl.glfw.GLFW;
 import org.slf4j.LoggerFactory;
 
 public final class EventsClient implements ClientModInitializer {
   public static final EventState STATE = new EventState();
+  public static final BaronTracker BARONS = new BaronTracker();
   public static final GymRefresh GYMS = new GymRefresh();
-  static KeyBinding openKey;
   private static final net.minecraft.network.packet.s2c.play.BossBarS2CPacket.Consumer RAID_BARS =
       new net.minecraft.network.packet.s2c.play.BossBarS2CPacket.Consumer() {
         public void add(
@@ -43,15 +39,27 @@ public final class EventsClient implements ClientModInitializer {
   }
 
   public void onInitializeClient() {
-    openKey =
-        KeyBindingHelper.registerKeyBinding(
-            new KeyBinding(
-                "key.tropimon_events.open",
-                InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_F6,
-                "category.tropimon_events"));
+    BARONS.register();
+    BaronOutline.register();
+    net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback.EVENT.register(
+        (dispatcher, registry) ->
+            dispatcher.register(
+                net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal(
+                        "tropimonevents")
+                    .then(
+                        net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal(
+                                "sound")
+                            .then(
+                                net.fabricmc.fabric.api.client.command.v2.ClientCommandManager
+                                    .literal("on")
+                                    .executes(context -> sound(context.getSource(), true)))
+                            .then(
+                                net.fabricmc.fabric.api.client.command.v2.ClientCommandManager
+                                    .literal("off")
+                                    .executes(context -> sound(context.getSource(), false))))));
     ClientTickEvents.END_CLIENT_TICK.register(
         c -> {
+          BARONS.tick(c);
           if (c.player != null
               && c.getNetworkHandler() != null
               && STATE.serverRecognized
@@ -62,11 +70,6 @@ public final class EventsClient implements ClientModInitializer {
                 System.currentTimeMillis(),
                 () -> c.getNetworkHandler().sendChatCommand("gym open"));
           }
-          while (openKey.wasPressed()) {
-            if (c.currentScreen != null && !(c.currentScreen instanceof EventsScreen)) continue;
-            EventsHud.scroll = 0;
-            c.setScreen(c.currentScreen instanceof EventsScreen ? null : new EventsScreen());
-          }
         });
     ClientPlayConnectionEvents.JOIN.register((h, s, c) -> reset());
     ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> reset());
@@ -74,24 +77,51 @@ public final class EventsClient implements ClientModInitializer {
         (c, t) -> {
           var mc = MinecraftClient.getInstance();
           if (mc.player == null || mc.options.hudHidden || mc.currentScreen != null) return;
-          EventsHud.draw(c, -1, -1);
+          EventsHud.draw(c);
+        });
+    net.fabricmc.fabric.api.client.screen.v1.ScreenEvents.AFTER_INIT.register(
+        (client, screen, width, height) -> {
+          if (!(screen instanceof net.minecraft.client.gui.screen.ChatScreen)) return;
+          net.fabricmc.fabric.api.client.screen.v1.ScreenEvents.afterRender(screen)
+              .register(
+                  (s, context, mouseX, mouseY, delta) -> {
+                    if (client.player != null && !client.options.hudHidden) {
+                      EventsHud.draw(context);
+                      EventsHud.tooltip(context, mouseX, mouseY);
+                    }
+                  });
+          net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents.allowMouseClick(screen)
+              .register((s, mouseX, mouseY, button) -> !EventsHud.click(mouseX, mouseY, button));
+          net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents.allowMouseScroll(screen)
+              .register(
+                  (s, mouseX, mouseY, horizontal, vertical) ->
+                      !EventsHud.scroll(mouseX, mouseY, vertical));
         });
     TropimonSelfUpdater.start(LoggerFactory.getLogger("tropimon_events"));
   }
 
   private static void reset() {
+    BARONS.reset();
     GYMS.reset(System.currentTimeMillis());
     STATE.reset();
     EventIcons.reset();
-    EventsHud.scroll = 0;
+  }
+
+  private static int sound(
+      net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source, boolean enabled) {
+    BARONS.soundEnabled = enabled;
+    source.sendFeedback(
+        net.minecraft.text.Text.literal(
+            "Son des Barons " + (enabled ? "activé" : "coupé") + " pour cette session."));
+    return 1;
   }
 
   public static void officialRegion() {
-    reset();
-    STATE.serverRecognized = true;
+    GYMS.reset(System.currentTimeMillis());
+    EventIcons.reset();
   }
 
   public static void systemMessage(String text) {
-    if (STATE.serverRecognized) STATE.accept(text, true, System.currentTimeMillis());
+    STATE.systemMessage(text, System.currentTimeMillis());
   }
 }

@@ -21,8 +21,7 @@ public final class EventWire {
     public void apply(EventState state, UUID player, long now) {
       try {
         if (id.equals(REGION)) {
-          state.reset();
-          state.serverRecognized = true;
+          state.region(now);
           return;
         }
         if (id.equals(GYMS)) {

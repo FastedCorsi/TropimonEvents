@@ -1,136 +1,210 @@
 package fr.tropimon.events;
 
-import java.util.*;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.text.Text;
 
+/** Automatic HUD; the existing chat screen provides the pointer for gym shortcuts. */
 final class EventsHud {
-  static int scroll;
+  private static int tooltipScroll;
+  private static String hovered = "";
 
-  static void scroll(double amount) {
-    scroll = Math.clamp(scroll + (amount > 0 ? -1 : 1), 0, 100);
+  private record Layout(int columns, int size) {
+    int x(int index) {
+      return 8 + index % columns * (size + 4);
+    }
+
+    int y(int index) {
+      return 24 + index / columns * (size + 4);
+    }
   }
 
-  static void draw(DrawContext c, double mouseX, double mouseY) {
-    var mc = MinecraftClient.getInstance();
+  private static Layout layout(int count, int barons) {
+    var window = MinecraftClient.getInstance().getWindow();
+    int columns = Math.max(1, Math.min(4, (window.getScaledWidth() - 16) / 28));
+    int rows = Math.max(1, (count + columns - 1) / columns);
+    return new Layout(
+        columns,
+        Math.max(12, Math.min(24, (window.getScaledHeight() - 32 - barons * 28) / rows - 4)));
+  }
+
+  static GymObservation gymAt(double mouseX, double mouseY) {
+    var state = EventsClient.STATE;
+    var gyms = state.gyms.values().stream().filter(GymObservation::open).toList();
+    int index = state.visible(System.currentTimeMillis()).size();
+    var layout = layout(index + gyms.size(), EventsClient.BARONS.visible().size());
+    for (var gym : gyms) {
+      int x = layout.x(index), y = layout.y(index++);
+      if (mouseX >= x && mouseX < x + layout.size && mouseY >= y && mouseY < y + layout.size)
+        return gym;
+    }
+    return null;
+  }
+
+  static boolean click(double x, double y, int button) {
+    var client = MinecraftClient.getInstance();
+    if (button != 0
+        || client.player == null
+        || client.options.hudHidden
+        || !(client.currentScreen instanceof net.minecraft.client.gui.screen.ChatScreen))
+      return false;
+    var gym = gymAt(x, y);
+    if (gym == null) return false;
+    GymTeleport.visit(gym);
+    return true;
+  }
+
+  static void tooltip(DrawContext context, int x, int y) {
+    var client = MinecraftClient.getInstance();
+    var state = EventsClient.STATE;
+    long now = System.currentTimeMillis();
+    var lines = new java.util.ArrayList<String>();
+    String key = "";
+    var gym = gymAt(x, y);
+    if (gym != null) {
+      key = gym.type();
+      lines.add("Arène " + gym.label() + " · Clic pour se téléporter");
+      lines.add("Champion : " + (gym.leader().isBlank() ? "non renseigné" : gym.leader()));
+      lines.add(gym.battle());
+      lines.add("Instantané reçu il y a " + Math.max(0, (now - gym.observed()) / 1000) + " s");
+    } else {
+      var notices = state.visible(now);
+      int count =
+          notices.size() + (int) state.gyms.values().stream().filter(GymObservation::open).count();
+      var layout = layout(count, EventsClient.BARONS.visible().size());
+      for (int i = 0; i < notices.size(); i++) {
+        if (x < layout.x(i)
+            || x >= layout.x(i) + layout.size
+            || y < layout.y(i)
+            || y >= layout.y(i) + layout.size) continue;
+        var notice = notices.get(i);
+        key = notice.kind().name();
+        lines.add(notice.title());
+        lines.add(notice.status(now));
+        lines.add(notice.detail());
+        if (notice.kind() == EventState.Kind.RAID || notice.kind() == EventState.Kind.MEGA) {
+          var boss = state.raidBoss(notice.kind());
+          lines.add(boss == null ? "Pokémon non identifié" : "Pokémon annoncé : " + boss.pokemon());
+          lines.add("La disparition du signal ne prouve pas la fin du raid.");
+        }
+        if (notice.kind() == EventState.Kind.SEASON) {
+          lines.add(
+              "Points : "
+                  + value(state.points)
+                  + " · Monnaie : "
+                  + value(state.currency)
+                  + " · Rang : "
+                  + value(state.rank));
+          state.objectives.forEach((goal, amount) -> lines.add(objective(goal) + " : " + amount));
+        }
+        break;
+      }
+    }
+    if (!key.equals(hovered)) tooltipScroll = 0;
+    hovered = key;
+    if (lines.isEmpty()) return;
+    var wrapped = new java.util.ArrayList<net.minecraft.text.Text>();
+    int width = Math.max(100, Math.min(280, client.getWindow().getScaledWidth() - 28));
+    for (String line : lines)
+      for (var part :
+          client
+              .textRenderer
+              .getTextHandler()
+              .wrapLines(
+                  net.minecraft.text.Text.literal(line), width, net.minecraft.text.Style.EMPTY))
+        wrapped.add(net.minecraft.text.Text.literal(part.getString()));
+    int limit = Math.max(3, (client.getWindow().getScaledHeight() - 30) / 10);
+    if (wrapped.size() > limit) {
+      tooltipScroll = Math.min(tooltipScroll, wrapped.size() - limit + 1);
+      wrapped =
+          new java.util.ArrayList<>(
+              wrapped.subList(tooltipScroll, Math.min(wrapped.size(), tooltipScroll + limit - 1)));
+      wrapped.add(net.minecraft.text.Text.literal("Molette : autres informations"));
+    }
+    context.drawTooltip(client.textRenderer, wrapped, x, y);
+  }
+
+  private static String value(Integer value) {
+    return value == null ? "non reçu" : value.toString();
+  }
+
+  static boolean scroll(double x, double y, double amount) {
+    if (hovered.isEmpty() || amount == 0 || MinecraftClient.getInstance().options.hudHidden)
+      return false;
+    var state = EventsClient.STATE;
+    int count =
+        state.visible(System.currentTimeMillis()).size()
+            + (int) state.gyms.values().stream().filter(GymObservation::open).count();
+    var layout = layout(count, EventsClient.BARONS.visible().size());
+    boolean hit = false;
+    for (int i = 0; i < count; i++)
+      hit |=
+          x >= layout.x(i)
+              && x < layout.x(i) + layout.size
+              && y >= layout.y(i)
+              && y < layout.y(i) + layout.size;
+    if (!hit) return false;
+    tooltipScroll = Math.clamp(tooltipScroll + (amount > 0 ? -1 : 1), 0, 100);
+    return true;
+  }
+
+  static void draw(DrawContext context) {
+    var client = MinecraftClient.getInstance();
     var state = EventsClient.STATE;
     long now = System.currentTimeMillis();
     var notices = state.visible(now);
     var gyms = state.gyms.values().stream().filter(GymObservation::open).toList();
-    int columns = Math.max(1, Math.min(4, (mc.getWindow().getScaledWidth() - 16) / 28));
-    int count = notices.size() + gyms.size();
-    int rows = Math.max(1, (count + columns - 1) / columns);
-    int size = Math.max(12, Math.min(24, (mc.getWindow().getScaledHeight() - 56) / rows - 4));
+    var barons = EventsClient.BARONS.visible();
+    var layout = layout(notices.size() + gyms.size(), barons.size());
+    int columns = layout.columns, size = layout.size;
     int step = size + 4;
-    int i = 0;
-    List<Text> hovered = null;
-    for (var kind : EventState.Kind.values()) {
-      var notice = notices.stream().filter(n -> n.kind() == kind).findFirst().orElse(null);
-      if (notice == null) continue;
-      int x = 8 + i % columns * step, y = 24 + i / columns * step;
-      i++;
-      EventIcons.draw(c, kind, x, y, size);
+    int index = 0;
+    for (var notice : notices) {
+      int x = layout.x(index), y = layout.y(index);
+      index++;
+      EventIcons.draw(context, notice.kind(), x, y, size);
       if (notice.end() > now) {
         long seconds = (notice.end() - now + 999) / 1000;
         String remaining = seconds >= 60 ? seconds / 60 + "m" : seconds + "s";
-        c.drawTextWithShadow(mc.textRenderer, remaining, x + 2, y + size - 7, 0xFFFFFFFF);
-      }
-      if (hit(mouseX, mouseY, x, y, size)) {
-        hovered = new ArrayList<>();
-        add(hovered, name(kind));
-        add(hovered, notice.title());
-        add(hovered, notice.status(now));
-        add(hovered, notice.detail());
-        add(hovered, age(now, notice.observed()));
-        if (kind == EventState.Kind.RAID || kind == EventState.Kind.MEGA) {
-          var boss = state.raidBoss(kind);
-          add(
-              hovered,
-              boss == null ? "Pokémon non identifié" : "Pokémon annoncé : " + boss.pokemon());
-          add(hovered, "La disparition du signal ne prouve pas la fin du raid.");
-        }
-        if (kind == EventState.Kind.SEASON) {
-          if (state.name.isBlank())
-            add(hovered, "Ouvre le menu d'événement officiel pour recevoir ses données.");
-          else {
-            add(
-                hovered,
-                "Points : "
-                    + value(state.points)
-                    + " · Monnaie : "
-                    + value(state.currency)
-                    + " · Rang : "
-                    + value(state.rank));
-            for (var goal : state.objectives.entrySet())
-              add(hovered, objective(goal.getKey()) + " : " + goal.getValue());
-          }
-        }
+        context.drawTextWithShadow(client.textRenderer, remaining, x + 2, y + size - 7, 0xFFFFFFFF);
       }
     }
     for (var gym : gyms) {
-      int x = 8 + i % columns * step, y = 24 + i / columns * step;
-      i++;
-      EventIcons.gym(c, gym, x, y, size);
+      int x = layout.x(index), y = layout.y(index);
+      index++;
+      EventIcons.gym(context, gym, x, y, size);
       if (gym.battle().startsWith("Prise d'arène :"))
-        EventIcons.tile(c, 10, x + size - 10, y - 2, 12);
-      if (hit(mouseX, mouseY, x, y, size)) {
-        hovered = new ArrayList<>();
-        add(hovered, "Arène " + gym.label());
-        add(hovered, gym.status());
-        add(hovered, "Champion : " + (gym.leader().isBlank() ? "non renseigné" : gym.leader()));
-        add(hovered, gym.battle());
-        add(hovered, age(now, gym.observed()));
-        add(hovered, "Instantané serveur · actualisation automatique chaque minute.");
-      }
+        EventIcons.tile(context, 10, x + size - 10, y - 2, 12);
     }
-    if (hovered != null) {
-      int maxLines = Math.max(3, (mc.getWindow().getScaledHeight() - 30) / 10);
-      if (hovered.size() > maxLines) {
-        int offset = Math.min(scroll, hovered.size() - maxLines + 1);
-        hovered =
-            new ArrayList<>(
-                hovered.subList(offset, Math.min(hovered.size(), offset + maxLines - 1)));
-        hovered.add(Text.literal("Molette : autres informations"));
-      }
-      c.drawTooltip(mc.textRenderer, hovered, (int) mouseX, (int) mouseY);
+    int y = 24 + (index + columns - 1) / columns * step;
+    int textWidth = Math.max(60, Math.min(210, client.getWindow().getScaledWidth() - 48));
+    for (var baron : barons) {
+      EventIcons.baron(context, baron.portrait(), 8, y, 24);
+      String name =
+          "Baron · " + baron.entity().getPokemon().getSpecies().getTranslatedName().getString();
+      int distance = (int) Math.round(baron.entity().distanceTo(client.player));
+      String detail = distance + " blocs · Niv. " + baron.entity().getPokemon().getLevel();
+      if (baron.entity().isBattling()) detail += " · Combat";
+      context.drawTextWithShadow(
+          client.textRenderer,
+          client.textRenderer.trimToWidth(name, textWidth),
+          36,
+          y + 2,
+          0xFFFF7575);
+      context.drawTextWithShadow(
+          client.textRenderer,
+          client.textRenderer.trimToWidth(detail, textWidth),
+          36,
+          y + 13,
+          0xFFFFFFFF);
+      y += 28;
     }
-  }
-
-  private static boolean hit(double mx, double my, int x, int y, int size) {
-    return mx >= x && mx < x + size && my >= y && my < y + size;
-  }
-
-  private static String value(Integer n) {
-    return n == null ? "non reçu" : n.toString();
-  }
-
-  private static String age(long now, long then) {
-    return "Dernière observation : il y a " + Math.max(0, (now - then) / 1000) + " s";
-  }
-
-  private static void add(List<Text> lines, String text) {
-    var mc = MinecraftClient.getInstance();
-    int width = Math.max(100, Math.min(280, mc.getWindow().getScaledWidth() - 28));
-    for (var line :
-        mc.textRenderer
-            .getTextHandler()
-            .wrapLines(Text.literal(text), width, net.minecraft.text.Style.EMPTY)) {
-      lines.add(Text.literal(line.getString()));
-    }
-  }
-
-  private static String name(EventState.Kind kind) {
-    return switch (kind) {
-      case RAID -> "Raid";
-      case MEGA -> "Méga Raid";
-      case SHINY -> "Boost chromatique";
-      case XP -> "Boost expérience";
-      case IV -> "Boost IV";
-      case ABILITY -> "Talent caché";
-      case CLEAR -> "Nettoyage au sol";
-      case SEASON -> "Événement saisonnier";
-    };
+    if (EventsClient.BARONS.count() > 4)
+      context.drawTextWithShadow(
+          client.textRenderer,
+          "+ " + (EventsClient.BARONS.count() - 4) + " autres Barons",
+          8,
+          y,
+          0xFFFF7575);
   }
 
   private static String objective(String key) {

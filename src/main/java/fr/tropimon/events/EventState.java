@@ -31,6 +31,10 @@ public final class EventState {
   }
 
   private final EnumMap<Kind, Notice> notices = new EnumMap<>(Kind.class);
+
+  private record EarlyMessage(String text, long received) {}
+
+  private final ArrayDeque<EarlyMessage> earlyMessages = new ArrayDeque<>();
   private final LinkedHashMap<String, Long> recent = new LinkedHashMap<>();
   public final Map<String, GymObservation> gyms = new LinkedHashMap<>();
   private final Map<UUID, RaidBoss> raidBars = new LinkedHashMap<>();
@@ -69,6 +73,7 @@ public final class EventState {
   public boolean serverRecognized;
 
   public void reset() {
+    earlyMessages.clear();
     notices.clear();
     recent.clear();
     gyms.clear();
@@ -80,6 +85,35 @@ public final class EventState {
     currency = null;
     rank = null;
     serverRecognized = false;
+  }
+
+  public void systemMessage(String text, long now) {
+    if (serverRecognized) {
+      accept(text, true, now);
+    } else if (text != null && text.length() <= 2048) {
+      if (earlyMessages.size() == 64) earlyMessages.removeFirst();
+      earlyMessages.addLast(new EarlyMessage(text, now));
+    }
+  }
+
+  /** Boosts are server-wide; a region change must not erase their remaining duration. */
+  public void region(long now) {
+    var boosts =
+        notices.values().stream()
+            .filter(
+                n ->
+                    (n.kind() == Kind.SHINY
+                            || n.kind() == Kind.XP
+                            || n.kind() == Kind.IV
+                            || n.kind() == Kind.ABILITY)
+                        && n.end() > now)
+            .toList();
+    var early = List.copyOf(earlyMessages);
+    reset();
+    serverRecognized = true;
+    for (var boost : boosts) notices.put(boost.kind(), boost);
+    for (var message : early)
+      if (now - message.received() <= 30000) accept(message.text(), true, message.received());
   }
 
   public List<Notice> visible(long now) {

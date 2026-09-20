@@ -6,6 +6,39 @@ import org.junit.jupiter.api.Test;
 
 class EventStateTest {
   @Test
+  void earlyMiracleSurvivesRegionRecognitionAndTravel() {
+    var state = new EventState();
+    state.systemMessage("- Shiny x2 (end in 1 hour, 33 minutes and 42 seconds)", 1000);
+    assertTrue(state.visible(1000).isEmpty());
+    state.region(6000);
+    assertEquals(5623000, state.visible(6000).getFirst().end());
+    state.gyms.put("FIRE", new GymObservation("FIRE", "", true, "", 6000));
+    state.region(7000);
+    assertEquals(5623000, state.visible(7000).getFirst().end());
+    assertTrue(state.gyms.isEmpty());
+    state.reset();
+    state.region(8000);
+    assertTrue(state.visible(8000).isEmpty());
+  }
+
+  @Test
+  void queuedMessagesAreBoundedFreshAndStillRejectSpoofing() {
+    var state = new EventState();
+    state.systemMessage("Player: - Shiny x2 (end in 2 hours)", 1000);
+    state.region(2000);
+    assertTrue(state.visible(2000).isEmpty());
+    state.reset();
+    state.systemMessage("- Shiny x2 (end in 2 hours)", 1000);
+    state.region(31001);
+    assertTrue(state.visible(31001).isEmpty());
+    state.reset();
+    state.systemMessage("- Shiny x2 (end in 2 hours)", 1000);
+    for (int i = 0; i < 64; i++) state.systemMessage("unrelated system message", 1001);
+    state.region(2000);
+    assertTrue(state.visible(2000).isEmpty());
+  }
+
+  @Test
   void liveMiracleFormatsAndWrittenDurations() {
     var s = new EventState();
     assertTrue(s.accept("- Shiny x2 (end in 1 hour, 17 minutes and 53 seconds)", true, 1000));

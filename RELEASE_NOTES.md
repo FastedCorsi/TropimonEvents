@@ -1,12 +1,14 @@
-# Tropimon Events 0.2.4
+# Tropimon Events 0.2.5
 
 By FastedCorsi
 
 <!-- tropimon-consent-updater:2 -->
 
-- Les miracles Shiny, XP, IV et talent caché apparaissent automatiquement dans le HUD avec les durées transmises par le serveur, y compris les listes en français et en anglais.
-- Les arènes ouvertes sont récupérées automatiquement avec la même demande que le navigateur officiel, sans avoir à ouvrir son menu. L'état est actualisé au plus chaque minute pendant le jeu ; les ouvertures manuelles du navigateur restent disponibles.
-- La carte du type est plus petite et placée dans l'entrée du bâtiment. Les icônes restent masquées dans les menus.
-- Les mises à jour restent soumises à consentement : accord distinct pour la vérification et pour le téléchargement, puis remplacement après fermeture de Minecraft avec sauvegarde.
+- Le HUD reste visible dans le chat. Un clic gauche sur une arène ouverte demande la téléportation visiteur du client officiel Tropimon.
+- Les cartes des types sont plus petites et recentrées dans l'entrée des arènes.
+- Les miracles reçus avant la reconnaissance du serveur, notamment Shiny, sont conservés ; un changement de région ne supprime plus un boost encore actif.
+- Les Barons sauvages détectés apparaissent avec leur portrait, leur niveau et leur distance, avec une alerte sonore unique. Le son se règle pour la session avec `/tropimonevents sound on` ou `off`.
+- Dans Xaero, les icônes existantes des Barons reçoivent un contour rouge sur la minimap et la carte du monde. Les images et leurs couleurs restent celles du joueur ; les réglages de visibilité de Xaero sont respectés.
+- Le raccourci F6 et l'ancien écran d'inspection ont été retirés. Le HUD est automatique.
 
-Le Pokémon d'un raid reste inconnu lorsqu'aucun signal explicite ne l'identifie. Les états d'arène sont des instantanés du serveur.
+La téléportation reste validée par le serveur. Seuls les Pokémon transmis au client sont détectables. Le Pokémon d'un raid reste inconnu sans signal explicite. Les mises à jour conservent leurs accords distincts avant vérification et téléchargement, puis leur installation différée avec sauvegarde.
