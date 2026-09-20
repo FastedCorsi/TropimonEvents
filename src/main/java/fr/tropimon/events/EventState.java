@@ -3,7 +3,7 @@ package fr.tropimon.events;
 import java.util.*;
 import java.util.regex.*;
 
-/** Session-local observations, never predictions from a raid schedule. */
+/** Observations and clearly separate schedule reminders; no inferred raid duration. */
 public final class EventState {
   private static final String BOOST_NAME =
       "((?:Boost )?(?:Shiny x2|XP x2|IVs \\+10|Talent Caché 10%|Hidden Ability 10%))";
@@ -16,11 +16,13 @@ public final class EventState {
     IV,
     ABILITY,
     CLEAR,
-    SEASON
+    SEASON,
+    NEXT_RAID
   }
 
   public record Notice(Kind kind, String title, String detail, long observed, long end) {
     public String status(long now) {
+      if (kind == Kind.NEXT_RAID) return "Début prévu dans " + duration(end - now);
       if (end == 0) return "Annonce reçue · état actuel inconnu";
       long seconds = Math.max(0, (end - now + 999) / 1000);
       if (seconds == 0) return "Terminé";
@@ -31,6 +33,10 @@ public final class EventState {
   }
 
   private final EnumMap<Kind, Notice> notices = new EnumMap<>(Kind.class);
+  private final EnumMap<Kind, Notice> retainedMiracles = new EnumMap<>(Kind.class);
+  private UUID retainedPlayer;
+  private long scheduleSecond = Long.MIN_VALUE;
+  private Notice scheduledRaid;
 
   private record EarlyMessage(String text, long received) {}
 
@@ -73,6 +79,33 @@ public final class EventState {
   public boolean serverRecognized;
 
   public void reset() {
+    retainedMiracles.clear();
+    retainedPlayer = null;
+    clearSession();
+  }
+
+  /** Keep only unexpired miracles in memory, scoped to the same player and official recognition. */
+  public void connectionChanged(UUID player, long now) {
+    if (!Objects.equals(retainedPlayer, player)) retainedMiracles.clear();
+    if (serverRecognized && Objects.equals(retainedPlayer, player)) {
+      retainedMiracles.clear();
+      notices.forEach(
+          (kind, notice) -> {
+            if (miracle(kind) && notice.end() > now) retainedMiracles.put(kind, notice);
+          });
+    }
+    retainedPlayer = player;
+    retainedMiracles.values().removeIf(n -> n.end() <= now);
+    clearSession();
+  }
+
+  private static boolean miracle(Kind kind) {
+    return kind == Kind.SHINY || kind == Kind.XP || kind == Kind.IV || kind == Kind.ABILITY;
+  }
+
+  private void clearSession() {
+    scheduleSecond = Long.MIN_VALUE;
+    scheduledRaid = null;
     earlyMessages.clear();
     notices.clear();
     recent.clear();
@@ -101,14 +134,40 @@ public final class EventState {
     var early = List.copyOf(earlyMessages);
     earlyMessages.clear();
     serverRecognized = true;
+    retainedMiracles.forEach(
+        (kind, notice) -> {
+          if (notice.end() > now) notices.putIfAbsent(kind, notice);
+        });
     for (var message : early)
       if (now - message.received() <= 30000) accept(message.text(), true, message.received());
   }
 
   public List<Notice> visible(long now) {
-    return notices.values().stream()
-        .filter(n -> n.end() == 0 ? now - n.observed() < 900_000 : n.end() > now)
-        .toList();
+    var result =
+        new ArrayList<>(
+            notices.values().stream()
+                .filter(n -> n.end() == 0 ? now - n.observed() < 900_000 : n.end() > now)
+                .toList());
+    if (serverRecognized) {
+      if (scheduleSecond != now / 1000) {
+        scheduleSecond = now / 1000;
+        long start = RaidSchedule.next(now);
+        scheduledRaid =
+            start - now <= 300_000
+                ? new Notice(
+                    Kind.NEXT_RAID, "Prochain raid", "Horaire prévu · heure de Paris", now, start)
+                : null;
+      }
+      if (scheduledRaid != null) result.add(scheduledRaid);
+    }
+    return result;
+  }
+
+  public static String duration(long millis) {
+    long seconds = Math.max(0, (millis + 999) / 1000);
+    return seconds >= 3600
+        ? seconds / 3600 + "h " + seconds % 3600 / 60 + "m " + seconds % 60 + "s"
+        : seconds >= 60 ? seconds / 60 + "m " + seconds % 60 + "s" : seconds + "s";
   }
 
   public void definition(
@@ -141,6 +200,31 @@ public final class EventState {
     if (s.contains("") || s.contains("ꌂ") || s.contains("ꌃ")) return false;
     recent.entrySet().removeIf(e -> now - e.getValue() > 2500);
     if (recent.containsKey(s)) return false;
+    Matcher raidTime =
+        Pattern.compile(
+                "^(?:Le |The )?((?:Mega |Méga )?Raid) (?:se termine dans|ends in) (.+?)[.!]?$",
+                Pattern.CASE_INSENSITIVE)
+            .matcher(s);
+    if (raidTime.matches()) {
+      long duration = parseDuration(raidTime.group(2));
+      if (duration <= 0) return false;
+      Kind raidKind = raidTime.group(1).equalsIgnoreCase("Raid") ? Kind.RAID : Kind.MEGA;
+      notices.put(raidKind, new Notice(raidKind, raidTime.group(1), s, now, now + duration));
+      remember(s, now);
+      return true;
+    }
+    Matcher raidEnd =
+        Pattern.compile(
+                "^(?:Le |The )?((?:Mega |Méga )?Raid) (?:est terminé|has ended)[.!]?$",
+                Pattern.CASE_INSENSITIVE)
+            .matcher(s);
+    if (raidEnd.matches()) {
+      Kind raidKind = raidEnd.group(1).equalsIgnoreCase("Raid") ? Kind.RAID : Kind.MEGA;
+      notices.remove(raidKind);
+      raidBars.values().removeIf(b -> b.kind() == raidKind);
+      remember(s, now);
+      return true;
+    }
     // Parse arena messages only when their fixed opening/closing words are present.
     if (s.contains("arène") || s.contains(" gym")) {
       var gym = GymObservation.announcement(s, now);
@@ -165,6 +249,7 @@ public final class EventState {
     if (s.equals("No boosts are currently active.")
         || s.equals("Aucun boost n'est actuellement actif.")) {
       for (Kind k : List.of(Kind.SHINY, Kind.XP, Kind.IV, Kind.ABILITY)) notices.remove(k);
+      retainedMiracles.clear();
       remember(s, now);
       return true;
     } else if (raid.matches()) {

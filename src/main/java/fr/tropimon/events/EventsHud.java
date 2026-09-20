@@ -8,23 +8,40 @@ final class EventsHud {
   private static int tooltipScroll;
   private static String hovered = "";
 
-  private record Layout(int columns, int size) {
+  private record Layout(int columns, int size, int width, int top) {
     int x(int index) {
-      return 8 + index % columns * (size + 4);
+      return 8 + index % columns * width + (width - size) / 2;
     }
 
     int y(int index) {
-      return 24 + index / columns * (size + 4);
+      return top + index / columns * (size + 14);
     }
   }
 
   private static Layout layout(int count, int barons) {
     var window = MinecraftClient.getInstance().getWindow();
-    int columns = Math.max(1, Math.min(4, (window.getScaledWidth() - 16) / 28));
+    var renderer = MinecraftClient.getInstance().textRenderer;
+    int width = 64;
+    long now = System.currentTimeMillis();
+    for (var notice : EventsClient.STATE.visible(now))
+      width = Math.max(width, renderer.getWidth(timer(notice, now)) + 8);
+    int columns = Math.max(1, Math.min(4, (window.getScaledWidth() - 16) / width));
     int rows = Math.max(1, (count + columns - 1) / columns);
+    int top = 24;
+    var bossHud = MinecraftClient.getInstance().inGameHud.getBossBarHud();
+    if (8 + columns * width > window.getScaledWidth() / 2 - 91
+        && bossHud instanceof fr.tropimon.events.mixin.BossBarHudAccessor accessor) {
+      int visibleBars =
+          Math.min(
+              accessor.events$bossBars().size(),
+              Math.max(0, (window.getScaledHeight() / 3 - 12) / 19 + 1));
+      if (visibleBars > 0) top = Math.max(top, 12 + visibleBars * 19);
+    }
     return new Layout(
         columns,
-        Math.max(12, Math.min(24, (window.getScaledHeight() - 32 - barons * 28) / rows - 4)));
+        Math.max(12, Math.min(24, (window.getScaledHeight() - top - 8 - barons * 28) / rows - 14)),
+        width,
+        top);
   }
 
   static GymObservation gymAt(double mouseX, double mouseY) {
@@ -156,26 +173,25 @@ final class EventsHud {
     var barons = EventsClient.BARONS.visible();
     var layout = layout(notices.size() + gyms.size(), barons.size());
     int columns = layout.columns, size = layout.size;
-    int step = size + 4;
+    int step = size + 14;
     int index = 0;
     for (var notice : notices) {
       int x = layout.x(index), y = layout.y(index);
       index++;
       EventIcons.draw(context, notice.kind(), x, y, size);
-      if (notice.end() > now) {
-        long seconds = (notice.end() - now + 999) / 1000;
-        String remaining = seconds >= 60 ? seconds / 60 + "m" : seconds + "s";
-        context.drawTextWithShadow(client.textRenderer, remaining, x + 2, y + size - 7, 0xFFFFFFFF);
-      }
+      context.drawCenteredTextWithShadow(
+          client.textRenderer,
+          timer(notice, now),
+          x + size / 2,
+          y + size + 2,
+          notice.kind() == EventState.Kind.NEXT_RAID ? 0xFFFFD16A : 0xFFFFFFFF);
     }
     for (var gym : gyms) {
       int x = layout.x(index), y = layout.y(index);
       index++;
       EventIcons.gym(context, gym, x, y, size);
-      if (gym.battle().startsWith("Prise d'arène :"))
-        EventIcons.tile(context, 10, x + size - 10, y - 2, 12);
     }
-    int y = 24 + (index + columns - 1) / columns * step;
+    int y = layout.top + (index + columns - 1) / columns * step;
     int textWidth = Math.max(60, Math.min(210, client.getWindow().getScaledWidth() - 48));
     for (var baron : barons) {
       EventIcons.baron(context, baron.portrait(), 8, y, 24);
@@ -205,6 +221,15 @@ final class EventsHud {
           8,
           y,
           0xFFFF7575);
+  }
+
+  private static String timer(EventState.Notice notice, long now) {
+    if (notice.kind() == EventState.Kind.NEXT_RAID)
+      return "Dans " + EventState.duration(notice.end() - now);
+    if (notice.end() > now) return EventState.duration(notice.end() - now);
+    return notice.kind() == EventState.Kind.RAID || notice.kind() == EventState.Kind.MEGA
+        ? "En cours"
+        : "";
   }
 
   private static String objective(String key) {

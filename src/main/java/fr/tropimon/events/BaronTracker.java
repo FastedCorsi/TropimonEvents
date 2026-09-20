@@ -5,10 +5,8 @@ import com.cobblemon.mod.common.item.PokemonItem;
 import java.util.*;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientEntityEvents;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.sound.PositionedSoundInstance;
 import net.minecraft.entity.Entity;
 import net.minecraft.item.ItemStack;
-import net.minecraft.sound.SoundEvents;
 
 /** Only entities already sent by the server. Load events avoid scanning the world every tick. */
 public final class BaronTracker {
@@ -16,11 +14,10 @@ public final class BaronTracker {
 
   private final Set<PokemonEntity> loaded = new HashSet<>();
   private final Map<UUID, Entry> active = new HashMap<>();
-  private final BaronAlerts alerts = new BaronAlerts();
+
   private List<Entry> nearest = List.of();
   private Object world;
   private int ticks;
-  boolean soundEnabled = true;
 
   public static boolean isBaron(Entity entity) {
     return entity instanceof PokemonEntity pokemon
@@ -50,7 +47,7 @@ public final class BaronTracker {
     loaded.clear();
     active.clear();
     nearest = List.of();
-    alerts.reset();
+
     world = null;
     ticks = 0;
   }
@@ -70,12 +67,11 @@ public final class BaronTracker {
     active
         .values()
         .removeIf(entry -> !isBaron(entry.entity()) || entry.entity().getWorld() != client.world);
-    boolean chime = false;
+
     for (PokemonEntity pokemon : loaded) {
       if (pokemon.getWorld() != client.world || !isBaron(pokemon)) continue;
       active.computeIfAbsent(
           pokemon.getUuid(), id -> new Entry(pokemon, PokemonItem.from(pokemon.getPokemon())));
-      chime |= alerts.discover(pokemon.getPokemon().getUuid(), System.currentTimeMillis());
     }
     nearest =
         active.values().stream()
@@ -84,12 +80,6 @@ public final class BaronTracker {
                     entry -> entry.entity().squaredDistanceTo(client.player)))
             .limit(4)
             .toList();
-    if (chime && soundEnabled)
-      client
-          .getSoundManager()
-          .play(
-              PositionedSoundInstance.master(
-                  SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), 1.2F, .65F));
   }
 
   List<Entry> visible() {

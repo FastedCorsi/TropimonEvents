@@ -76,7 +76,7 @@ public final class BaronSmoke {
             ticks = 0;
             switch (stage) {
               case 0 -> {
-                SmokeClient.require(chimes == 1, "exactly one Baron chime");
+                SmokeClient.require(chimes == 0, "Baron discovery is silent");
                 SmokeClient.require(
                     EventsClient.BARONS.count() == 1,
                     "only wild Alpha is detected; normal and owned Alpha excluded");
@@ -124,10 +124,6 @@ public final class BaronSmoke {
                   c.options.getGuiScale().setValue(scale);
                   c.onResolutionChanged();
                 } else {
-                  c.getNetworkHandler().sendChatCommand("tropimonevents sound off");
-                  SmokeClient.require(
-                      !EventsClient.BARONS.soundEnabled,
-                      "Baron sound can be muted by local command");
                   if (net.fabricmc.loader.api.FabricLoader.getInstance()
                       .isModLoaded("xaeroworldmap")) {
                     var session =
@@ -154,7 +150,7 @@ public final class BaronSmoke {
                 stage = 3;
               }
               case 3 -> {
-                SmokeClient.require(chimes == 1, "no repeated chime for the same Baron");
+                SmokeClient.require(chimes == 0, "Baron remains silent after reload");
                 SmokeClient.require(
                     EventsClient.BARONS.count() == 0 && EventsClient.BARONS.visible().isEmpty(),
                     "unloaded Baron disappears without stale marker");

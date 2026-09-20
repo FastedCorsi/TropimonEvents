@@ -41,22 +41,6 @@ public final class EventsClient implements ClientModInitializer {
   public void onInitializeClient() {
     BARONS.register();
     BaronOutline.register();
-    net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback.EVENT.register(
-        (dispatcher, registry) ->
-            dispatcher.register(
-                net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal(
-                        "tropimonevents")
-                    .then(
-                        net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal(
-                                "sound")
-                            .then(
-                                net.fabricmc.fabric.api.client.command.v2.ClientCommandManager
-                                    .literal("on")
-                                    .executes(context -> sound(context.getSource(), true)))
-                            .then(
-                                net.fabricmc.fabric.api.client.command.v2.ClientCommandManager
-                                    .literal("off")
-                                    .executes(context -> sound(context.getSource(), false))))));
     ClientTickEvents.END_CLIENT_TICK.register(
         c -> {
           BARONS.tick(c);
@@ -73,8 +57,8 @@ public final class EventsClient implements ClientModInitializer {
         });
     // Tropimon can send miracle announcements before JOIN finishes. Clear the previous session
     // when its play handler is initialized, before those first messages can arrive.
-    ClientPlayConnectionEvents.INIT.register((h, c) -> reset());
-    ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> reset());
+    ClientPlayConnectionEvents.INIT.register((h, c) -> connectionChanged(c));
+    ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> connectionChanged(c));
     HudRenderCallback.EVENT.register(
         (c, t) -> {
           var mc = MinecraftClient.getInstance();
@@ -102,20 +86,11 @@ public final class EventsClient implements ClientModInitializer {
     TropimonSelfUpdater.start(LoggerFactory.getLogger("tropimon_events"));
   }
 
-  private static void reset() {
+  private static void connectionChanged(MinecraftClient client) {
     BARONS.reset();
     GYMS.reset(System.currentTimeMillis());
-    STATE.reset();
+    STATE.connectionChanged(client.getSession().getUuidOrNull(), System.currentTimeMillis());
     EventIcons.reset();
-  }
-
-  private static int sound(
-      net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource source, boolean enabled) {
-    BARONS.soundEnabled = enabled;
-    source.sendFeedback(
-        net.minecraft.text.Text.literal(
-            "Son des Barons " + (enabled ? "activé" : "coupé") + " pour cette session."));
-    return 1;
   }
 
   public static void officialRegion() {

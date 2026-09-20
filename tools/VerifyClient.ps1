@@ -73,12 +73,23 @@ if ($OfficialResourcesJar) {
     # Local visual fixture only: read the installed artwork, never include it in a delivery.
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $pack = Join-Path $run 'resourcepacks/official-gym-fixture'
-    $asset = 'assets/tropimodclient/guis/navigator/competition/gymlist/gymlist.png'
-    $target = Join-Path $pack $asset
-    New-Item -ItemType Directory -Force (Split-Path -Parent $target) | Out-Null
     $archive = [IO.Compression.ZipFile]::OpenRead($OfficialResourcesJar)
-    try { [IO.Compression.ZipFileExtensions]::ExtractToFile($archive.GetEntry($asset), $target, $true) }
-    finally { $archive.Dispose() }
+    try {
+        foreach ($entry in $archive.Entries | Where-Object FullName -match '^assets/tropimodclient/guis/gyms/badge/badge_[a-z]+\.png$') {
+            $target = Join-Path $pack $entry.FullName
+            New-Item -ItemType Directory -Force (Split-Path -Parent $target) | Out-Null
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
+        }
+        $nested = Join-Path $run 'official-furnitures-fixture.jar'
+        [IO.Compression.ZipFileExtensions]::ExtractToFile($archive.GetEntry('META-INF/jars/Tropifurnitures-1.0.0+1.21.1.jar'), $nested, $true)
+        $furnitures = [IO.Compression.ZipFile]::OpenRead($nested)
+        try {
+            $asset = 'assets/tropifurnitures/textures/item/great_enigma_berry.png'
+            $target = Join-Path $pack $asset
+            New-Item -ItemType Directory -Force (Split-Path -Parent $target) | Out-Null
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($furnitures.GetEntry($asset), $target, $true)
+        } finally { $furnitures.Dispose() }
+    } finally { $archive.Dispose() }
     [IO.File]::WriteAllText((Join-Path $pack 'pack.mcmeta'), '{"pack":{"pack_format":34,"description":"Local installed gym artwork fixture"}}')
     $optionsLines += 'resourcePacks:["vanilla","file/official-gym-fixture"]'
 }

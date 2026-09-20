@@ -5,6 +5,7 @@
   "client": [
     "SystemMessageMixin",
     "RaidBarMixin",
+    "BossBarHudAccessor",
     "RegionPacketMixin",
     "GymScreenMixin",
     "XaeroBaronMixin",

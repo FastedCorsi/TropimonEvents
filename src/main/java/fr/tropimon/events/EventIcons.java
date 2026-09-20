@@ -13,48 +13,49 @@ import net.minecraft.util.Identifier;
 final class EventIcons {
   private static final Identifier ATLAS =
       Identifier.of("tropimon_events", "textures/gui/events.png");
-  private static final Identifier GYM_CARDS =
-      Identifier.of("tropimodclient", "guis/navigator/competition/gymlist/gymlist.png");
-  private static Boolean gymCardsAvailable;
+  private static final Identifier SHINY =
+      Identifier.of("cobblemon", "textures/gui/summary/icon_shiny.png");
 
   private record Portrait(String name, String language, ItemStack item) {}
 
   private static final EnumMap<EventState.Kind, Portrait> PORTRAITS =
       new EnumMap<>(EventState.Kind.class);
+  private static final Map<Identifier, Integer> BADGE_HEIGHTS = new HashMap<>();
 
   static void reset() {
     PORTRAITS.clear();
-    gymCardsAvailable = null;
+    BADGE_HEIGHTS.clear();
   }
 
   static void gym(DrawContext c, GymObservation gym, int x, int y, int size) {
-    tile(c, 8, x, y, size);
-    var mc = MinecraftClient.getInstance();
-    if (gymCardsAvailable == null)
-      gymCardsAvailable = mc.getResourceManager().getResource(GYM_CARDS).isPresent();
-    // Sample the official navigator's cards at runtime; never redistribute its artwork.
-    int index = GymObservation.TYPES.indexOf(gym.type());
-    if (index == 3) index = 4;
-    else if (index == 4) index = 3;
-    int width = Math.max(2, size * 4 / 24), height = Math.max(3, size * 5 / 24);
-    int left = x + size * 11 / 24, top = y + size * 14 / 24;
-    if (gymCardsAvailable) {
-      c.drawTexture(
-          GYM_CARDS,
-          left,
-          top,
-          width,
-          height,
-          26 + index % 9 * 33,
-          65 + index / 9 * 38,
-          30,
-          34,
-          345,
-          205);
-    } else {
+    Identifier badge =
+        Identifier.of(
+            "tropimodclient",
+            "guis/gyms/badge/badge_" + gym.type().toLowerCase(Locale.ROOT) + ".png");
+    int height =
+        BADGE_HEIGHTS.computeIfAbsent(
+            badge,
+            id -> {
+              try (var input = MinecraftClient.getInstance().getResourceManager().open(id);
+                  var image = net.minecraft.client.texture.NativeImage.read(input)) {
+                return image.getWidth() == 16 && image.getHeight() >= 16 ? image.getHeight() : 0;
+              } catch (java.io.IOException unavailable) {
+                return 0;
+              }
+            });
+    if (height > 0) c.drawTexture(badge, x, y, size, size, 0, 0, 16, 16, 16, height);
+    else
       c.drawCenteredTextWithShadow(
-          mc.textRenderer, gym.label().substring(0, 2), x + size / 2, top + 2, 0xFFFFFFFF);
-    }
+          MinecraftClient.getInstance().textRenderer,
+          gym.label().substring(0, 2),
+          x + size / 2,
+          y + size / 2 - 4,
+          0xFFFFFFFF);
+  }
+
+  private static void texture(
+      DrawContext c, Identifier texture, int x, int y, int width, int height) {
+    c.drawTexture(texture, x, y, width, height, 0, 0, 1, 1, 1, 1);
   }
 
   static void tile(DrawContext c, int tile, int x, int y, int size) {
@@ -77,7 +78,20 @@ final class EventIcons {
   }
 
   static void draw(DrawContext c, EventState.Kind kind, int x, int y, int size) {
-    tile(c, kind.ordinal(), x, y, size);
+    Identifier texture =
+        switch (kind) {
+          case XP -> Identifier.of("cobblemon", "textures/item/experience_candy/exp_candy_xl.png");
+          case IV -> Identifier.of("cobblemon", "textures/item/iv_candy/mighty_candy.png");
+          case ABILITY -> Identifier.of("tropifurnitures", "textures/item/great_enigma_berry.png");
+          case SHINY -> SHINY;
+          default -> null;
+        };
+    if (texture != null) {
+      texture(c, texture, x, y, size, size);
+      return;
+    }
+    tile(c, kind == EventState.Kind.NEXT_RAID ? 0 : kind.ordinal(), x, y, size);
+    if (kind == EventState.Kind.NEXT_RAID) return;
     if (kind != EventState.Kind.RAID && kind != EventState.Kind.MEGA) return;
     var boss = EventsClient.STATE.raidBoss(kind);
     ItemStack item = boss == null ? ItemStack.EMPTY : portrait(kind, boss.pokemon());

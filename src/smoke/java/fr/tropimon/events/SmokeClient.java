@@ -277,7 +277,10 @@ public final class SmokeClient implements ClientModInitializer {
               }
               case 2 -> {
                 require(
-                    EventsClient.STATE.visible(System.currentTimeMillis()).size() == 7,
+                    EventsClient.STATE.visible(System.currentTimeMillis()).stream()
+                            .filter(n -> n.kind() != EventState.Kind.NEXT_RAID)
+                            .count()
+                        == 7,
                     "actual system message packets detected");
                 require(client.currentScreen == null, "automatic gym response never opens menu");
                 EventsClient.GYMS.request(System.currentTimeMillis(), () -> {});
@@ -318,7 +321,10 @@ public final class SmokeClient implements ClientModInitializer {
                         && EventsClient.STATE.gyms.get("FIRE").battle().contains("en cours"),
                     "region packet preserves open gym and terminal state");
                 require(
-                    EventsClient.STATE.visible(System.currentTimeMillis()).size() == 7,
+                    EventsClient.STATE.visible(System.currentTimeMillis()).stream()
+                            .filter(n -> n.kind() != EventState.Kind.NEXT_RAID)
+                            .count()
+                        == 7,
                     "region packet preserves all HUD event icons");
                 require(
                     EventsClient.STATE.raidBoss(EventState.Kind.RAID).pokemon().equals("Charizard"),
@@ -355,8 +361,8 @@ public final class SmokeClient implements ClientModInitializer {
                     "outside click remains available to chat");
                 require(!EventsHud.scroll(1, 1, -1), "outside wheel remains available to chat");
                 boolean found = false;
-                for (int y = 24; y < 160 && !found; y++)
-                  for (int x = 8; x < 124; x++) {
+                for (int y = 24; y < client.getWindow().getScaledHeight() && !found; y += 2)
+                  for (int x = 8; x < client.getWindow().getScaledWidth(); x += 2) {
                     var gym = EventsHud.gymAt(x, y);
                     if (gym == null) continue;
                     require(gym.type().equals("FIRE"), "closed gym is never clickable");
