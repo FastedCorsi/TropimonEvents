@@ -3,169 +3,320 @@ package fr.tropimon.events;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.net.http.*;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.security.MessageDigest;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.HexFormat;
-import java.util.Locale;
+import java.nio.file.*;
+import java.time.*;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
-import net.fabricmc.loader.api.FabricLoader;
-import net.fabricmc.loader.api.ModContainer;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.jar.*;
+import net.fabricmc.loader.api.*;
+import net.fabricmc.loader.api.metadata.version.VersionPredicate;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import static net.fabricmc.fabric.api.client.command.v2.ClientCommandManager.literal;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.*;
+import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.text.Text;
 import org.slf4j.Logger;
 
-/** Updater autonome de ce mod. Aucune classe d'un autre mod Tropimon n'est requise. */
+/** Autonomous opt-in updater; no dependency on another Tropimon mod. */
 final class TropimonSelfUpdater {
-  private static final String MOD_ID = "tropimon_events";
-  private static final String REPOSITORY = "TropimonEvents";
-  private static final String RELEASE_API =
-      "https://api.github.com/repos/FastedCorsi/" + REPOSITORY + "/releases/latest";
-  private static final String RELEASE_DOWNLOAD_PREFIX =
-      "https://github.com/FastedCorsi/" + REPOSITORY + "/releases/download/";
-  private static final Duration CHECK_INTERVAL = Duration.ofHours(6);
-  private static final long MAX_JAR_SIZE = 64L * 1024L * 1024L;
-  private static final HttpClient HTTP =
-      HttpClient.newBuilder()
-          .connectTimeout(Duration.ofSeconds(10))
-          .followRedirects(HttpClient.Redirect.NORMAL)
-          .build();
+    private static final String MOD_ID = "tropimon_events";
+    private static final String REPOSITORY = "TropimonEvents";
+    private static final String RELEASE_API = "https://api.github.com/repos/FastedCorsi/" + REPOSITORY + "/releases?per_page=20";
+    private static final String CONSENT_RELEASE = "<!-- tropimon-consent-updater:2 -->";
+    private static final String RELEASE_DOWNLOAD_PREFIX = "https://github.com/FastedCorsi/" + REPOSITORY + "/releases/download/";
+    private static final Duration CHECK_INTERVAL = Duration.ofHours(6);
+    private static final long MAX_JAR_SIZE = 64L * 1024 * 1024;
+    private static HttpClient http;
+    private static synchronized HttpClient http() {
+        if (http == null) http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
+                .followRedirects(HttpClient.Redirect.NORMAL).build();
+        return http;
+    }
+    private static final AtomicBoolean BUSY = new AtomicBoolean();
+    private static volatile ReleaseOffer pending;
+    private static volatile boolean checksAllowed;
+    private static boolean asked, shown;
+    private static Logger log;
 
-  private TropimonSelfUpdater() {}
+    private TropimonSelfUpdater() {}
 
-  static void start(Logger logger) {
-    if (Boolean.getBoolean("tropimon.smoke")
-        || FabricLoader.getInstance().isDevelopmentEnvironment()
-        || !enabled(logger)) return;
-    CompletableFuture.runAsync(() -> check(logger))
-        .exceptionally(
-            failure -> {
-              logger.warn(
-                  "Mise a jour automatique {} indisponible pour cette session ({}).",
-                  MOD_ID,
-                  rootCause(failure).getClass().getSimpleName());
-              return null;
+    static void start(Logger logger) {
+        log = logger;
+        if (FabricLoader.getInstance().isDevelopmentEnvironment() || Boolean.getBoolean("tropimon.smoke")) return;
+        try {
+            JsonObject config = Files.exists(config()) ? JsonParser.parseString(Files.readString(config())).getAsJsonObject() : new JsonObject();
+            checksAllowed = checksConsented(config);
+            asked = config.has("consentVersion") && config.get("consentVersion").getAsInt() == 2
+                    && config.has("asked") && config.get("asked").getAsBoolean();
+        } catch (Exception ignored) { checksAllowed = false; asked = false; }
+        ClientCommandRegistrationCallback.EVENT.register((dispatcher, access) -> dispatcher.register(
+                literal("tropimonupdates").then(literal(MOD_ID).executes(context -> {
+                    MinecraftClient client = context.getSource().getClient();
+                    client.execute(() -> client.setScreen(new UpdateScreen(client.currentScreen, pending)));
+                    return 1;
+                }))));
+        ScreenEvents.AFTER_INIT.register((client, screen, width, height) -> {
+            if (screen instanceof TitleScreen || screen instanceof GameMenuScreen) client.execute(() -> {
+                // Multiple independent mods take turns; never replace another mod's consent screen.
+                if (client.currentScreen != screen) return;
+                if (pending != null || (!asked && !shown)) {
+                    shown = true;
+                    client.setScreen(new UpdateScreen(screen, pending));
+                }
             });
-  }
-
-  private static boolean enabled(Logger logger) {
-    Path config = FabricLoader.getInstance().getConfigDir().resolve(MOD_ID + "-updater.json");
-    try {
-      if (Files.notExists(config)) {
-        Files.createDirectories(config.getParent());
-        Files.writeString(config, "{\n  \"enabled\": true\n}\n", StandardCharsets.UTF_8);
-        return true;
-      }
-      JsonObject json = JsonParser.parseString(Files.readString(config)).getAsJsonObject();
-      return !json.has("enabled") || json.get("enabled").getAsBoolean();
-    } catch (Exception failure) {
-      logger.warn("Configuration de mise a jour {} illisible; mise a jour desactivee.", MOD_ID);
-      return false;
+        });
+        ClientLifecycleEvents.CLIENT_STARTED.register(client -> {
+            if (checksAllowed && !recentlyChecked()) check();
+        });
     }
-  }
 
-  private static void check(Logger logger) {
-    if (!isWindows()) {
-      logger.info(
-          "Mise a jour automatique {}: installation differee disponible sous Windows uniquement.",
-          MOD_ID);
-      return;
+    static boolean checksConsented(JsonObject json) {
+        try {
+            return json.has("consentVersion") && json.get("consentVersion").getAsInt() == 2
+                    && json.has("allowChecks") && json.get("allowChecks").getAsBoolean();
+        } catch (RuntimeException invalid) { return false; }
     }
-    ModContainer container = FabricLoader.getInstance().getModContainer(MOD_ID).orElse(null);
-    if (container == null) return;
-    Path installedJar = installedJar(container);
-    if (installedJar != null
-        && !installedJar
-            .getParent()
-            .equals(
-                FabricLoader.getInstance()
-                    .getGameDir()
-                    .toAbsolutePath()
-                    .normalize()
-                    .resolve("mods"))) return;
-    if (installedJar == null || recentlyChecked()) return;
 
-    try {
-      markChecked();
-      JsonObject release = requestJson(RELEASE_API);
-      if (release.get("draft").getAsBoolean() || release.get("prerelease").getAsBoolean()) return;
-      String currentVersion = container.getMetadata().getVersion().getFriendlyString();
-      String releaseVersion = release.get("tag_name").getAsString().replaceFirst("^[vV]", "");
-      if (compareVersions(releaseVersion, currentVersion) <= 0) {
-        markChecked();
-        return;
-      }
-      ReleaseAsset jarAsset = selectJar(release.getAsJsonArray("assets"));
-      if (jarAsset == null) {
-        throw new IOException("Release assets incomplete");
-      }
-      ReleaseAsset checksumAsset =
-          selectChecksum(release.getAsJsonArray("assets"), jarAsset.name());
-      if (checksumAsset == null) throw new IOException("Release assets incomplete");
-
-      Path updateDir =
-          FabricLoader.getInstance().getConfigDir().resolve(".tropimon-updates").resolve(MOD_ID);
-      Files.createDirectories(updateDir);
-      String expectedHash = requestText(checksumAsset.url(), 512).trim().split("\\s+", 2)[0];
-      if (!expectedHash.matches("(?i)[0-9a-f]{64}")) {
-        throw new IOException("Invalid SHA-256 sidecar");
-      }
-
-      Path staged = updateDir.resolve(jarAsset.name());
-      download(jarAsset.url(), staged, MAX_JAR_SIZE);
-      String downloadedHash = sha256(staged);
-      if (!downloadedHash.equalsIgnoreCase(expectedHash)) {
-        Files.deleteIfExists(staged);
-        throw new IOException("SHA-256 mismatch");
-      }
-
-      JarMetadata metadata = inspectJar(staged);
-      if (!MOD_ID.equals(metadata.id()) || !metadata.version().equals(releaseVersion)) {
-        Files.deleteIfExists(staged);
-        throw new IOException("Unexpected mod id");
-      }
-      if (compareVersions(metadata.version(), currentVersion) <= 0) {
-        Files.deleteIfExists(staged);
-        markChecked();
-        return;
-      }
-
-      Path installer = updateDir.resolve("install-after-minecraft.ps1");
-      Files.writeString(installer, WINDOWS_INSTALLER, StandardCharsets.UTF_8);
-      armInstaller(installer, staged, installedJar, sha256(installedJar), downloadedHash);
-      logger.info(
-          "Mise a jour {} {} preparee; installation automatique apres l'arret de Minecraft.",
-          MOD_ID,
-          metadata.version());
-    } catch (InterruptedException interrupted) {
-      Thread.currentThread().interrupt();
-    } catch (Exception failure) {
-      logger.warn(
-          "Verification de mise a jour {} echouee ({}).",
-          MOD_ID,
-          failure.getClass().getSimpleName());
+    private static Path config() {
+        return FabricLoader.getInstance().getConfigDir().resolve(MOD_ID + "-updater.json").toAbsolutePath().normalize();
     }
-  }
 
-  private static Path installedJar(ModContainer container) {
-    return container.getOrigin().getPaths().stream()
-        .filter(Files::isRegularFile)
-        .filter(path -> path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
-        .findFirst()
-        .map(Path::toAbsolutePath)
-        .map(Path::normalize)
-        .orElse(null);
-  }
+    private static void settings(boolean allow) throws IOException {
+        checksAllowed = allow; asked = true;
+        if (!allow) pending = null;
+        Path file = config(); TropimonUpdateInstaller.safe(file); Files.createDirectories(file.getParent());
+        JsonObject json = new JsonObject();
+        json.addProperty("consentVersion", 2); json.addProperty("asked", true); json.addProperty("allowChecks", allow);
+        // The legacy enabled=true setting never authorizes network access or downloads.
+        json.addProperty("enabled", false);
+        Path tmp = file.resolveSibling(file.getFileName() + ".tmp"); TropimonUpdateInstaller.safe(tmp);
+        Files.writeString(tmp, json.toString(), StandardCharsets.UTF_8);
+        Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private static void check() {
+        if (!checksAllowed || !BUSY.compareAndSet(false, true)) return;
+        CompletableFuture.runAsync(() -> {
+            try {
+                ModContainer mod = FabricLoader.getInstance().getModContainer(MOD_ID).orElseThrow();
+                Path installed = installedJar(mod);
+                if (installed == null) throw new IOException("Unsupported mod origin");
+                markChecked();
+                JsonObject release = selectRelease(JsonParser.parseString(requestText(RELEASE_API, 2 * 1024 * 1024)).getAsJsonArray());
+                if (release == null) return;
+                String version = release.get("tag_name").getAsString().replaceFirst("^[vV]", "");
+                if (compareVersions(version, mod.getMetadata().getVersion().getFriendlyString()) <= 0) return;
+                ReleaseAsset jar = selectJar(release.getAsJsonArray("assets"));
+                ReleaseAsset checksum = jar == null ? null : selectChecksum(release.getAsJsonArray("assets"), jar.name());
+                if (jar == null || checksum == null) throw new IOException("Incomplete release");
+                // Metadata only. Neither the checksum nor the JAR is fetched at this stage.
+                if (checksAllowed) {
+                    ReleaseOffer offer = new ReleaseOffer(version, jar, checksum, installed);
+                    pending = offer;
+                    MinecraftClient.getInstance().execute(() -> {
+                        MinecraftClient c = MinecraftClient.getInstance();
+                        if (pending == offer && (c.currentScreen instanceof TitleScreen || c.currentScreen instanceof GameMenuScreen))
+                            c.setScreen(new UpdateScreen(c.currentScreen, offer));
+                    });
+                }
+            } catch (Exception failure) { failed(failure); }
+            finally { BUSY.set(false); }
+        });
+    }
+
+    static boolean consumeApproval(ReleaseOffer offer, ReleaseOffer current, boolean accepted) {
+        return accepted && offer != null && offer == current && offer.used.compareAndSet(false, true);
+    }
+
+    static JsonObject selectRelease(JsonArray releases) {
+        JsonObject selected = null;
+        String newest = "0";
+        for (var value : releases) {
+            try {
+                JsonObject release = value.getAsJsonObject();
+                if (release.get("draft").getAsBoolean() || release.get("prerelease").getAsBoolean()
+                        || !release.has("body") || release.get("body").isJsonNull()
+                        || !release.get("body").getAsString().contains(CONSENT_RELEASE)) continue;
+                String version = release.get("tag_name").getAsString().replaceFirst("^[vV]", "");
+                if (!version.matches("[0-9]+(?:\\.[0-9]+){1,3}(?:\\+[A-Za-z0-9._-]+)?")) continue;
+                if (compareVersions(version, newest) > 0) { selected = release; newest = version; }
+            } catch (RuntimeException malformed) { /* An invalid entry cannot authorize a download. */ }
+        }
+        return selected;
+    }
+
+    private static void approve(ReleaseOffer offer) {
+        if (!checksAllowed || offer == null || offer != pending || !BUSY.compareAndSet(false, true)) return;
+        if (!consumeApproval(offer, pending, true)) { BUSY.set(false); return; }
+        pending = null;
+        CompletableFuture.runAsync(() -> {
+            try {
+                // Capture the installed content before any file download, not after it.
+                String oldHash = TropimonUpdateInstaller.hash(offer.target);
+                Path base = marker().getParent(); TropimonUpdateInstaller.safe(base); Files.createDirectories(base);
+                Path directory = Files.createDirectory(base.resolve(UUID.randomUUID().toString()));
+                String expectedHash = requestText(offer.checksum.url(), 512).trim().split("\\s+", 2)[0];
+                if (!expectedHash.matches("(?i)[0-9a-f]{64}")) throw new IOException("Invalid checksum");
+                Path staged = directory.resolve(offer.jar.name());
+                download(offer.jar.url(), staged, MAX_JAR_SIZE);
+                if (!TropimonUpdateInstaller.hash(staged).equalsIgnoreCase(expectedHash)) throw new IOException("Checksum mismatch");
+                compatible(TropimonUpdateInstaller.metadata(staged));
+                Properties job = TropimonUpdateInstaller.prepare(offer.target, staged, MOD_ID, offer.version);
+                if (!oldHash.equals(job.getProperty("oldHash"))) throw new IOException("Installed mod changed during download");
+                launchInstaller(directory, job);
+                log.info("{}: update {} prepared with consent; waiting for Minecraft to stop.", MOD_ID, offer.version);
+                notice(tr("Mise Ã  jour prÃ©parÃ©e. Elle sera installÃ©e aprÃ¨s fermeture de Minecraft.",
+                        "Update prepared. It will install after Minecraft closes."));
+            } catch (Exception failure) { failed(failure); }
+            finally { BUSY.set(false); }
+        });
+    }
+
+    private static void compatible(JsonObject metadata) throws Exception {
+        if (!metadata.has("depends")) throw new IOException("Missing dependencies");
+        for (var dependency : metadata.getAsJsonObject("depends").entrySet()) {
+            Version installed = dependency.getKey().equals("java") ? Version.parse(Integer.toString(Runtime.version().feature()))
+                    : FabricLoader.getInstance().getModContainer(dependency.getKey()).orElseThrow().getMetadata().getVersion();
+            var value = dependency.getValue();
+            List<String> ranges = new ArrayList<>();
+            if (value.isJsonArray()) value.getAsJsonArray().forEach(v -> ranges.add(v.getAsString()));
+            else ranges.add(value.getAsString());
+            boolean valid = false;
+            for (String range : ranges) valid |= VersionPredicate.parse(range).test(installed);
+            if (!valid) throw new IOException("Update incompatible with installed dependencies");
+        }
+    }
+
+    static Process launchInstaller(Path directory, Properties job) throws Exception {
+        Path helper = directory.resolve("installer.jar");
+        String resource = TropimonUpdateInstaller.class.getName().replace('.', '/') + ".class";
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(helper));
+             InputStream input = TropimonUpdateInstaller.class.getResourceAsStream("/" + resource)) {
+            if (input == null) throw new IOException("Missing installer");
+            output.putNextEntry(new JarEntry(resource)); input.transferTo(output); output.closeEntry();
+        }
+        // Gson is already supplied by Minecraft. Copy locally; never download a runtime or dependency.
+        Path gsonSource = Path.of(JsonParser.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+        Path gson = directory.resolve("json-runtime.jar");
+        Files.copy(gsonSource, gson);
+        if (!TropimonUpdateInstaller.hash(gsonSource).equals(TropimonUpdateInstaller.hash(gson))) throw new IOException("Runtime copy mismatch");
+        Path plan = directory.resolve("install.properties");
+        try (OutputStream output = Files.newOutputStream(plan)) { job.store(output, "Private local update plan; do not share"); }
+        boolean windows = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows");
+        Path java = Path.of(System.getProperty("java.home"), "bin", windows ? "javaw.exe" : "java");
+        if (!Files.isRegularFile(java)) throw new IOException("Bundled Java runtime unavailable");
+        return new ProcessBuilder(java.toString(), "-cp", helper + File.pathSeparator + gson,
+                TropimonUpdateInstaller.class.getName(), plan.toString())
+                .redirectErrorStream(true).redirectOutput(directory.resolve("install.log").toFile()).start();
+    }
+
+    private static Path installedJar(ModContainer mod) {
+        var paths = mod.getOrigin().getPaths().stream().filter(Files::isRegularFile)
+                .filter(p -> p.getFileName().toString().endsWith(".jar"))
+                .map(p -> p.toAbsolutePath().normalize()).toList();
+        if (paths.size() != 1) return null;
+        Path jar = paths.getFirst();
+        return jar.getParent().equals(FabricLoader.getInstance().getGameDir().toAbsolutePath().normalize().resolve("mods")) ? jar : null;
+    }
+
+    private static void failed(Exception failure) {
+        log.warn("{}: update unavailable ({}); existing mod preserved.", MOD_ID, failure.getClass().getSimpleName());
+        notice(tr("Mise Ã  jour impossible. Le mod actuel est conservÃ©. Consulte la Release officielle.",
+                "Update unavailable. Your current mod is preserved. Check the official release."));
+    }
+
+    private static void notice(String message) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        client.execute(() -> {
+            if (client.player != null) client.player.sendMessage(Text.literal(REPOSITORY + ": " + message), false);
+            else client.getToastManager().add(net.minecraft.client.toast.SystemToast.create(client,
+                    new net.minecraft.client.toast.SystemToast.Type(), Text.literal(REPOSITORY), Text.literal(message)));
+        });
+    }
+
+    private static String tr(String french, String english) {
+        return MinecraftClient.getInstance().options.language.startsWith("fr") ? french : english;
+    }
+
+    private static int compareVersions(String left, String right) { return TropimonUpdateInstaller.compare(left, right); }
+    private record ReleaseAsset(String name, String url) {}
+    static final class ReleaseOffer {
+        final String version;
+        final ReleaseAsset jar, checksum;
+        final Path target;
+        final AtomicBoolean used = new AtomicBoolean();
+        ReleaseOffer(String version, ReleaseAsset jar, ReleaseAsset checksum, Path target) {
+            this.version = version; this.jar = jar; this.checksum = checksum; this.target = target;
+        }
+    }
+
+    private static final class UpdateScreen extends Screen {
+        private final Screen parent;
+        private final ReleaseOffer offer;
+        private int scroll, maxScroll;
+        UpdateScreen(Screen parent, ReleaseOffer offer) {
+            super(Text.literal(REPOSITORY + " â€” " + tr("Mises Ã  jour", "Updates")));
+            this.parent = parent; this.offer = offer;
+        }
+        @Override protected void init() {
+            int w = Math.min(300, width - 30), x = (width - w) / 2;
+            addDrawableChild(ButtonWidget.builder(Text.literal(offer == null
+                    ? tr("Autoriser les vÃ©rifications", "Allow update checks")
+                    : tr("TÃ©lÃ©charger et installer", "Download and install")), button -> {
+                if (offer == null) {
+                    try { settings(true); close(); check(); } catch (IOException e) { failed(e); close(); }
+                } else { approve(offer); close(); }
+            }).dimensions(x, height - 78, w, 20).build());
+            addDrawableChild(ButtonWidget.builder(Text.literal(tr("Plus tard", "Later")), button -> close())
+                    .dimensions(x, height - 54, w, 20).build());
+            addDrawableChild(ButtonWidget.builder(Text.literal(tr("DÃ©sactiver les mises Ã  jour", "Disable update checks")), button -> {
+                try { settings(false); } catch (IOException e) { failed(e); }
+                close();
+            }).dimensions(x, height - 30, w, 20).build());
+        }
+        @Override public void close() {
+            shown = true;
+            if (pending == offer) pending = null;
+            // Keep approval bound to the exact offer while its button callback runs.
+            client.setScreen(parent);
+        }
+        @Override public boolean mouseScrolled(double mouseX, double mouseY, double horizontal, double vertical) {
+            scroll = Math.clamp(scroll - (int) (vertical * 22), 0, maxScroll);
+            return true;
+        }
+        @Override public void render(DrawContext context, int mouseX, int mouseY, float delta) {
+            renderBackground(context, mouseX, mouseY, delta);
+            context.drawCenteredTextWithShadow(textRenderer, title, width / 2, 12, 0xFFFFFF);
+            String body = offer == null
+                    ? tr("Autoriser ce mod Ã  consulter GitHub au dÃ©marrage (au maximum toutes les 6 heures) ? GitHub reÃ§oit la connexion rÃ©seau. Aucun fichier ne sera tÃ©lÃ©chargÃ© sans un nouvel accord pour la version proposÃ©e. Refuser ne change aucune fonctionnalitÃ© du mod.",
+                         "Allow this mod to check GitHub at startup (at most every 6 hours)? GitHub receives the network connection. No file will download without separate consent for the offered version. Declining does not affect the mod's features.")
+                    : tr("Version proposÃ©e : ", "Offered version: ") + offer.version + "\n" + offer.jar.name()
+                        + "\n" + tr("Source : GitHub / FastedCorsi / ", "Source: GitHub / FastedCorsi / ") + REPOSITORY
+                        + "\n" + tr("Ce bouton tÃ©lÃ©charge le JAR et son SHA-256. AprÃ¨s vÃ©rification, un petit installateur Java local attend la fermeture de Minecraft, sauvegarde l'ancien JAR puis le remplace. Le launcher reste inchangÃ©. La version sera active au prochain lancement.",
+                                   "This button downloads the JAR and its SHA-256. After verification, a small local Java installer waits for Minecraft to close, backs up the old JAR and replaces it. Your launcher stays unchanged. The update is active on the next launch.");
+            var lines = textRenderer.wrapLines(Text.literal(body), Math.min(560, width - 40));
+            maxScroll = Math.max(0, lines.size() * 11 - (height - 126));
+            scroll = Math.clamp(scroll, 0, maxScroll);
+            context.enableScissor(10, 32, width - 10, height - 90);
+            int y = 34 - scroll;
+            for (var line : lines) {
+                context.drawTextWithShadow(textRenderer, line, Math.max(20, (width - 560) / 2), y, 0xDDDDDD); y += 11;
+            }
+            context.disableScissor();
+            if (scroll < maxScroll) context.drawCenteredTextWithShadow(textRenderer,
+                    Text.literal(tr("Défiler pour lire la suite ↓", "Scroll to read more ↓")), width / 2, height - 89, 0xFFD580);
+            super.render(context, mouseX, mouseY, delta);
+        }
+    }
 
   private static boolean recentlyChecked() {
     Path marker = marker();
@@ -192,16 +343,11 @@ final class TropimonSelfUpdater {
         .resolve("last-check.txt");
   }
 
-  private static JsonObject requestJson(String url) throws IOException, InterruptedException {
-    String body = requestText(url, 2 * 1024 * 1024);
-    return JsonParser.parseString(body).getAsJsonObject();
-  }
-
   private static String requestText(String url, long maxBytes)
       throws IOException, InterruptedException {
     HttpRequest request = request(url);
     HttpResponse<InputStream> response =
-        HTTP.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        http().send(request, HttpResponse.BodyHandlers.ofInputStream());
     if (response.statusCode() != 200) {
       response.body().close();
       throw new IOException("HTTP " + response.statusCode());
@@ -214,7 +360,7 @@ final class TropimonSelfUpdater {
   private static void download(String url, Path destination, long maxBytes)
       throws IOException, InterruptedException {
     HttpResponse<InputStream> response =
-        HTTP.send(request(url), HttpResponse.BodyHandlers.ofInputStream());
+        http().send(request(url), HttpResponse.BodyHandlers.ofInputStream());
     if (response.statusCode() != 200) {
       response.body().close();
       throw new IOException("HTTP " + response.statusCode());
@@ -301,223 +447,5 @@ final class TropimonSelfUpdater {
     return new ReleaseAsset(name, url);
   }
 
-  private static JarMetadata inspectJar(Path jar) throws IOException {
-    try (ZipFile zip = new ZipFile(jar.toFile())) {
-      ZipEntry entry = zip.getEntry("fabric.mod.json");
-      if (entry == null || entry.getSize() > 1024 * 1024) throw new IOException("Missing metadata");
-      try (InputStream input = zip.getInputStream(entry)) {
-        JsonObject json =
-            JsonParser.parseString(
-                    new String(readLimited(input, 1024 * 1024), StandardCharsets.UTF_8))
-                .getAsJsonObject();
-        return new JarMetadata(json.get("id").getAsString(), json.get("version").getAsString());
-      }
-    }
-  }
 
-  private static int compareVersions(String left, String right) {
-    int[] a = numericParts(left);
-    int[] b = numericParts(right);
-    for (int index = 0; index < Math.max(a.length, b.length); index++) {
-      int av = index < a.length ? a[index] : 0;
-      int bv = index < b.length ? b[index] : 0;
-      if (av != bv) return Integer.compare(av, bv);
-    }
-    return 0;
-  }
-
-  private static int[] numericParts(String version) {
-    String core = version.split("[+-]", 2)[0];
-    String[] parts = core.replaceFirst("^[vV]", "").split("\\.");
-    int[] values = new int[parts.length];
-    for (int index = 0; index < parts.length; index++) {
-      try {
-        values[index] = Integer.parseInt(parts[index].replaceAll("[^0-9].*$", ""));
-      } catch (NumberFormatException ignored) {
-        values[index] = 0;
-      }
-    }
-    return values;
-  }
-
-  private static String sha256(Path file) throws Exception {
-    MessageDigest digest = MessageDigest.getInstance("SHA-256");
-    try (InputStream input = Files.newInputStream(file)) {
-      byte[] buffer = new byte[16 * 1024];
-      int read;
-      while ((read = input.read(buffer)) >= 0) digest.update(buffer, 0, read);
-    }
-    return HexFormat.of().formatHex(digest.digest());
-  }
-
-  private static void armInstaller(
-      Path script, Path staged, Path target, String oldHash, String newHash) throws IOException {
-    new ProcessBuilder(
-            "powershell.exe",
-            "-NoProfile",
-            "-NonInteractive",
-            "-WindowStyle",
-            "Hidden",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            script.toString(),
-            "-ParentPid",
-            Long.toString(ProcessHandle.current().pid()),
-            "-Staged",
-            staged.toString(),
-            "-Target",
-            target.toString(),
-            "-ExpectedOldHash",
-            oldHash,
-            "-NewHash",
-            newHash,
-            "-ModId",
-            MOD_ID)
-        .redirectErrorStream(true)
-        .redirectOutput(script.resolveSibling("install.log").toFile())
-        .start();
-  }
-
-  private static boolean isWindows() {
-    return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
-  }
-
-  private static Throwable rootCause(Throwable failure) {
-    Throwable current = failure;
-    while (current.getCause() != null) current = current.getCause();
-    return current;
-  }
-
-  private record ReleaseAsset(String name, String url) {}
-
-  private record JarMetadata(String id, String version) {}
-
-  private static final String WINDOWS_INSTALLER =
-      """
-param(
- [Parameter(Mandatory=$true)][long]$ParentPid,
- [Parameter(Mandatory=$true)][string]$Staged,
- [Parameter(Mandatory=$true)][string]$Target,
- [Parameter(Mandatory=$true)][string]$ExpectedOldHash,
- [Parameter(Mandatory=$true)][string]$NewHash,
- [Parameter(Mandatory=$true)][string]$ModId
-)
-$ErrorActionPreference='Stop'
-Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
-Import-Module (Join-Path $PSHOME 'Modules/CimCmdlets/CimCmdlets.psd1') -ErrorAction Stop
-$locked=$null
-$managedLock=$null
-$trackerLock=$null
-$status=Join-Path (Split-Path -Path $Staged -Parent) 'update-status.json'
-function Status([string]$state) { @{state=$state;updatedAt=[DateTimeOffset]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content -LiteralPath $status -Encoding UTF8 }
-function Running([string]$instance) {
- foreach($process in (Get-CimInstance Win32_Process -Filter "Name='java.exe' OR Name='javaw.exe'")){
-  $line=$process.CommandLine
-  if([string]::IsNullOrWhiteSpace($line)){throw 'Java process cannot be verified'}
-  if($line -notmatch 'KnotClient|net\\.minecraft\\.client|--gameDir|--launchTarget'){continue}
-  $match=[regex]::Match($line,'--gameDir(?:\\s+|=)(?:"([^"]+)"|([^\\s"]+))')
-  if(!$match.Success){throw 'Minecraft instance cannot be verified'}
-  $dir=if($match.Groups[1].Success){$match.Groups[1].Value}else{$match.Groups[2].Value}
-  if([IO.Path]::GetFullPath($dir).TrimEnd('\\','/') -ieq $instance.TrimEnd('\\','/')){return $true}
- }
- return $false
-}
-try {
- $Target=[IO.Path]::GetFullPath($Target)
- $mods=Split-Path -Path $Target -Parent
- $instance=Split-Path -Path $mods -Parent
- if((Split-Path -Path $mods -Leaf) -cne 'mods'){throw 'Invalid target'}
- foreach($path in @($mods,$instance,$Target,$Staged)){if((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Redirected path'}}
- $managed=Join-Path $instance 'mods-user'
- $tracker=Join-Path (Split-Path -Parent $instance) 'user-mods-tracked.json'
- $isManaged=(Test-Path -LiteralPath $managed) -or (Test-Path -LiteralPath $tracker)
- if($isManaged){
-  Add-Type -AssemblyName System.IO.Compression.FileSystem
-  function Meta([string]$p){
-   $zip=[IO.Compression.ZipFile]::OpenRead($p)
-   try{$entry=$zip.GetEntry('fabric.mod.json');if(!$entry -or $entry.Length -gt 1048576){throw 'Invalid metadata'};$reader=[IO.StreamReader]::new($entry.Open());try{$reader.ReadToEnd()|ConvertFrom-Json}finally{$reader.Dispose()}}finally{$zip.Dispose()}
-  }
-  $leaf=Split-Path -Leaf $Target
-  $managedTarget=Join-Path $managed $leaf
-  foreach($path in @((Split-Path -Parent $instance),$managed,$tracker,$managedTarget)){
-   if(!(Test-Path -LiteralPath $path) -or ((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Unknown or redirected managed layout'}
-  }
-  $tracking=Get-Content -LiteralPath $tracker -Raw
-  if(!$tracking.TrimStart().StartsWith('[')){throw 'Unknown tracking format'}
-  $parsedTracking=ConvertFrom-Json -InputObject $tracking
-  $tracked=@($parsedTracking)
-  foreach($name in $tracked){if($name -isnot [string] -or [IO.Path]::GetFileName($name) -cne $name){throw 'Unknown tracking entry'}}
-  if(@($tracked|Where-Object{$_ -ceq $leaf}).Count -ne 1){throw 'Mod not uniquely tracked'}
-  $trackerHash=(Get-FileHash -LiteralPath $tracker -Algorithm SHA256).Hash
-  if((Get-FileHash -LiteralPath $managedTarget -Algorithm SHA256).Hash -ine $ExpectedOldHash){throw 'Managed copy differs'}
-  foreach($dir in @($mods,$managed)){
-   $same=@(Get-ChildItem -LiteralPath $dir -Filter '*.jar' -File|Where-Object{(Meta $_.FullName).id -ceq $ModId})
-   if($same.Count -ne 1 -or $same[0].Name -cne $leaf){throw 'Duplicate or ambiguous mod'}
-  }
-  $oldMeta=Meta $Target; $newMeta=Meta $Staged
-  if($oldMeta.id -cne $ModId -or $newMeta.id -cne $ModId -or [version]$newMeta.version -le [version]$oldMeta.version){throw 'Unexpected update identity or version'}
- }
- Status 'waiting'
- while((Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) -or (Running $instance)){Start-Sleep -Seconds 3}
- foreach($path in @($mods,$instance,$Target,$Staged)){if((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Redirected path after waiting'}}
- $archiveParent=Join-Path $instance 'mod-archive'
- if((Test-Path -LiteralPath $archiveParent) -and ((Get-Item -LiteralPath $archiveParent).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Redirected archive'}
- if((Get-FileHash -LiteralPath $Staged -Algorithm SHA256).Hash -ine $NewHash){throw 'Staged hash changed'}
- $archive=Join-Path $instance ('mod-archive/'+$ModId+'-'+[guid]::NewGuid().ToString('N'))
- New-Item -ItemType Directory -Path $archive | Out-Null
- $incoming=Join-Path $archive 'incoming.jar'
- Copy-Item -LiteralPath $Staged -Destination $incoming
- if((Get-FileHash -LiteralPath $incoming -Algorithm SHA256).Hash -ine $NewHash){throw 'Copy hash mismatch'}
- if(Running $instance){throw 'Minecraft restarted'}
- if($isManaged){
-  foreach($path in @((Split-Path -Parent $instance),$managed,$tracker,$managedTarget)){if((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Redirected managed path after waiting'}}
-  foreach($dir in @($mods,$managed)){
-   $same=@(Get-ChildItem -LiteralPath $dir -Filter '*.jar' -File|Where-Object{(Meta $_.FullName).id -ceq $ModId})
-   if($same.Count -ne 1 -or $same[0].Name -cne $leaf){throw 'Mod set changed while waiting'}
-  }
-  if((Get-FileHash -LiteralPath $tracker -Algorithm SHA256).Hash -ine $trackerHash){throw 'Tracking changed since preparation'}
-  $managedLock=[IO.File]::Open($managedTarget,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::Read -bor [IO.FileShare]::Delete))
-  $trackerLock=[IO.File]::Open($tracker,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
-  $locked=[IO.File]::Open($Target,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::Read -bor [IO.FileShare]::Delete))
-  if((Get-FileHash -LiteralPath $managedTarget -Algorithm SHA256).Hash -ine $ExpectedOldHash -or (Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash -ine $ExpectedOldHash -or (Get-FileHash -LiteralPath $tracker -Algorithm SHA256).Hash -ine $trackerHash){throw 'Managed target changed'}
-  $managedIncoming=Join-Path $archive 'managed-incoming.jar'
-  Copy-Item -LiteralPath $incoming -Destination $managedIncoming
-  if((Get-FileHash -LiteralPath $managedIncoming -Algorithm SHA256).Hash -ine $NewHash){throw 'Managed staged copy differs'}
-  $backup=Join-Path $archive 'runtime-before.jar';$managedBackup=Join-Path $archive 'managed-before.jar'
-  $movedRuntime=$false;$movedManaged=$false
-  try{
-   if(Running $instance){throw 'Minecraft restarted'}
-   Move-Item -LiteralPath $Target -Destination $backup;$movedRuntime=$true
-   Move-Item -LiteralPath $managedTarget -Destination $managedBackup;$movedManaged=$true
-   Move-Item -LiteralPath $incoming -Destination $Target
-   Move-Item -LiteralPath $managedIncoming -Destination $managedTarget
-   foreach($p in @($Target,$managedTarget)){if((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash -ine $NewHash -or (Meta $p).version -cne $newMeta.version){throw 'Installed copy differs'}}
-   foreach($p in @($backup,$managedBackup)){if((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash -ine $ExpectedOldHash){throw 'Backup differs'}}
-   if((Get-FileHash -LiteralPath $tracker -Algorithm SHA256).Hash -ine $trackerHash){throw 'Tracking changed'}
-  }catch{
-   if($movedRuntime){if(Test-Path -LiteralPath $Target){if((Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash -ine $NewHash){throw 'Concurrent modification preserved'};Move-Item -LiteralPath $Target -Destination (Join-Path $archive 'failed-runtime.jar')};Move-Item -LiteralPath $backup -Destination $Target}
-   if($movedManaged){if(Test-Path -LiteralPath $managedTarget){if((Get-FileHash -LiteralPath $managedTarget -Algorithm SHA256).Hash -ine $NewHash){throw 'Concurrent modification preserved'};Move-Item -LiteralPath $managedTarget -Destination (Join-Path $archive 'failed-managed.jar')};Move-Item -LiteralPath $managedBackup -Destination $managedTarget}
-   throw
-  }
-  Status 'installed';exit 0
- }
- $locked=[IO.File]::Open($Target,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Delete)
- if((Get-FileHash -InputStream $locked -Algorithm SHA256).Hash -ine $ExpectedOldHash){throw 'Target changed since preparation'}
- $backup=Join-Path $archive (Split-Path -Path $Target -Leaf)
- Move-Item -LiteralPath $Target -Destination $backup
- try {
-  Move-Item -LiteralPath $incoming -Destination $Target
-  if((Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash -ine $NewHash){throw 'Final hash mismatch'}
- } catch {
-  if(Test-Path -LiteralPath $Target){Move-Item -LiteralPath $Target -Destination (Join-Path $archive 'failed.jar')}
-  if(!(Test-Path -LiteralPath $Target)){Move-Item -LiteralPath $backup -Destination $Target}
-  throw
- }
- $locked.Dispose();$locked=$null
- if((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash -ine $ExpectedOldHash){throw 'Backup hash mismatch'}
- Status 'installed'
-} catch { Write-Output $_.FullyQualifiedErrorId; Status 'blocked'; exit 2 } finally {if($locked){$locked.Dispose()};if($managedLock){$managedLock.Dispose()};if($trackerLock){$trackerLock.Dispose()}}
-
-""";
 }
