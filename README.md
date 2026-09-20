@@ -1,38 +1,38 @@
 # Tropimon Events
 
-By FastedCorsi — 0.1.0
+By FastedCorsi — 0.2.0
 
-**F6** : console Events (touche reconfigurable).
+Des icônes Pokémon/Cobblemon dans le HUD, sans tableau de bord ni interface de combat. **F6** libère le curseur pour consulter les informations au survol ; F6 ou Échap rend la main au jeu. La touche est reconfigurable. La molette parcourt les longues infobulles.
 
-Barre de huit pictogrammes originaux : raid, Méga Raid, chromatique, XP, IV, talent caché, nettoyage au sol et événement saisonnier. Les annonces confirmées apparaissent dans le HUD ; les détails sont accessibles au survol lorsque le curseur est disponible, ou dans la console.
+## Icônes et données
 
-Les durées de boosts viennent des annonces reconnues FR/EN. Un raid annoncé sans durée reste « état actuel inconnu » : aucun horaire fixe ne fabrique un raid actif. Les événements saisonniers utilisent le nom, la description, la fin et les objectifs du paquet officiel ; les points, monnaie et rang viennent du paquet de progression du compte connecté. Ouvrir le menu d'événement officiel déclenche normalement l'envoi de sa définition.
+- Raids : cristal rouge ; Méga Raids : cristal violet. Le Pokémon identifié est rendu à l'intérieur par Cobblemon. Une forme Méga n'est sélectionnée que si son nom explicite et sa forme installée sont reconnus. Sinon, un point d'interrogation remplace le modèle inconnu.
+- Boosts chromatique, XP, IV et talent caché, nettoyage au sol et événement saisonnier : pictogrammes originaux en couleurs. Les durées viennent des annonces serveur ; nom, description, objectifs, points, monnaie et rang de l'événement restent consultables au survol.
+- Arènes : bâtiment ouvert ou fermé, type, champion, dernière observation et état du défi lorsque transmis. Le défi pour le titre reste distinct des défis de badge et de maîtrise. Confirmation, préparation, match en cours, fin et annulation ne sont pas confondus.
 
-Observation passive des paquets, sans les enregistrer, les remplacer ou les bloquer. Tailles bornées, SHA côté mise à jour, données par session, invalidation à la reconnexion/changement de sous-serveur. Les messages de joueurs ne sont pas interprétés comme annonces officielles.
+Les données d'arène sont observées passivement dans les paquets officiels du navigateur et des terminaux. Ouvrir ces menus peut être nécessaire. Chaque état reste un **instantané**, pas une surveillance globale en temps réel ; une nouvelle liste invalide l'ancien état de match. Aucune commande, téléportation ou inscription automatique.
 
-Limites : seuls les formats vérifiés sont reconnus ; une nouvelle formulation du serveur nécessite un ajustement. Les objectifs affichés sont les valeurs annoncées, pas une progression inventée objectif par objectif.
+L'annonce textuelle de déclenchement de raid connue ne fournit pas son Pokémon. Cette version reconnaît les titres explicites de barre de boss `Raid : <Pokémon>`, `Mega Raid : <Pokémon>` ou `Méga Raid : <Pokémon>` ; ces formats sont testés sur un serveur synthétique, mais leur émission sur Tropimon réel n'est pas confirmée. Un nom de Pokémon générique, un combat proche ou une arène occupée ne suffisent jamais. Plusieurs barres concurrentes du même type sont considérées ambiguës. Une nouvelle annonce, une disparition de barre ou un changement de session invalide l'identité précédente. Aucune durée de raid ni fin de combat n'est inventée.
 
-## Compilation et vérification
+## Vérification et compatibilité
 
-Java 21, Minecraft 1.21.1, Fabric et Cobblemon >= 1.8.0. Sans borne supérieure mineure artificielle.
+Java 21, Minecraft 1.21.1, Fabric et Cobblemon >= 1.8.0, sans borne supérieure mineure artificielle.
 
 ```text
 gradlew build remapSmokeJar
-gradlew build -PcobblemonJar=<jar-de-la-version-minimale>
 gradlew build -PofficialDependenciesOnly
+gradlew build -PcobblemonJar=<jar-du-minimum>
 gradlew prepareReleaseDelivery
 ```
 
-Le build local exige un unique JAR Cobblemon actif. `TROPIMON_HOME` permet de choisir une instance ; la matrice utilise `-PcobblemonJar`. Un exemple de CI utilisant le minimum officiel est fourni sous tools ; aucun workflow distant n'est activé dans cette livraison. Tests unitaires, contrôle de confidentialité des sources et des JAR (archives imbriquées comprises), tests d'installation sous Windows, puis test hors ligne isolé avec `tools/VerifyClient.ps1`. Aucun journal, sauvegarde ou profil réel n'est publié.
+Le build sélectionne l'unique Cobblemon actif par son identifiant Fabric, y compris les noms de fichiers hachés du launcher. Avec plusieurs profils, préciser l'instance via `TROPIMON_HOME`, ou utiliser la matrice explicite. Le minimum officiel est Cobblemon 1.8.0.
 
-## Distribution
+Tests unitaires, vérifications d'installation différée et contrôle de confidentialité des sources/JAR, archives imbriquées comprises. `tools/VerifyClient.ps1` réalise les essais réseau et visuels dans un monde local isolé ; ses paquets sont des fixtures synthétiques. Aucun essai ne pilote une arène ou un raid réel. Les données et la diffusion réelles restent à valider en situation.
 
-Deux exemplaires identiques sont produits dans `build/release/0.1.0/local` et `build/release/0.1.0/shareable`, avec SHA-256. Ne jamais charger les deux exemplaires. Le script du dossier local attend l'arrêt de Minecraft, vérifie les empreintes, conserve l'ancien JAR hors des mods et refuse une cible modifiée depuis la préparation. Le launcher peut rester ouvert.
+## Livraison
 
-L'auto-update est autonome : uniquement la Release du dépôt de ce mod, SHA-256, identifiant et version exacts, préparation hors des mods, remplacement différé après arrêt du jeu sous Windows. Vérification asynchrone au démarrage, espacée d'au moins six heures entre les sessions. Désactivation locale possible dans le fichier `config/<mod_id>-updater.json`.
+Deux JAR identiques dans `build/release/0.2.0/local` et `build/release/0.2.0/shareable`, accompagnés de SHA-256. Ne pas charger les deux exemplaires. La livraison LOCAL inclut un installateur autonome pour le stockage géré : `mods-user`, `mods` et `user-mods-tracked.json`. Il préserve les autres mods et leur désactivation, attend la fermeture du jeu, vérifie les empreintes et sauvegarde les anciens fichiers hors des dossiers chargés. Le launcher peut rester ouvert.
 
-## Périmètre de la première version
+L'auto-update autonome consulte uniquement la Release officielle de ce dépôt, avec vérification SHA-256/id/version, préparation hors des mods et remplacement différé sous Windows. Sur un profil géré, il met à jour les deux copies sous leur nom déjà suivi, vérifie que le suivi reste inchangé et refuse une copie divergente ou une cible modifiée. Il ne répare pas rétroactivement les anciennes versions distribuées. Vérification espacée d'au moins six heures ; désactivation locale dans `config/tropimon_events-updater.json`.
 
-Cette version n'est pas une copie complète de HunterBoard. Pas d'interface de combat, pas de dépendance à un autre mod développé par By FastedCorsi. Les crédits tiers figurent dans THIRD_PARTY.md. Les préférences persistantes sont conservées dans AGENTS.md.
-
-Les tests réseau sont réalisés avec des paquets synthétiques dans un vrai client Minecraft isolé. Ils ne remplacent pas une validation connectée à un événement Tropimon en cours. Aucune partie réelle n'est pilotée automatiquement.
+Attribution : By FastedCorsi. Crédits tiers dans THIRD_PARTY.md. Aucun autre mod Tropimon n'est requis. Les journaux, profils, captures d'une partie réelle et outils d'installation locale ne sont pas inclus dans le JAR public.

@@ -407,6 +407,8 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
 Import-Module (Join-Path $PSHOME 'Modules/CimCmdlets/CimCmdlets.psd1') -ErrorAction Stop
 $locked=$null
+$managedLock=$null
+$trackerLock=$null
 $status=Join-Path (Split-Path -Path $Staged -Parent) 'update-status.json'
 function Status([string]$state) { @{state=$state;updatedAt=[DateTimeOffset]::UtcNow.ToString('o')} | ConvertTo-Json | Set-Content -LiteralPath $status -Encoding UTF8 }
 function Running([string]$instance) {
@@ -427,8 +429,40 @@ try {
  $instance=Split-Path -Path $mods -Parent
  if((Split-Path -Path $mods -Leaf) -cne 'mods'){throw 'Invalid target'}
  foreach($path in @($mods,$instance,$Target,$Staged)){if((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Redirected path'}}
+ $managed=Join-Path $instance 'mods-user'
+ $tracker=Join-Path (Split-Path -Parent $instance) 'user-mods-tracked.json'
+ $isManaged=(Test-Path -LiteralPath $managed) -or (Test-Path -LiteralPath $tracker)
+ if($isManaged){
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  function Meta([string]$p){
+   $zip=[IO.Compression.ZipFile]::OpenRead($p)
+   try{$entry=$zip.GetEntry('fabric.mod.json');if(!$entry -or $entry.Length -gt 1048576){throw 'Invalid metadata'};$reader=[IO.StreamReader]::new($entry.Open());try{$reader.ReadToEnd()|ConvertFrom-Json}finally{$reader.Dispose()}}finally{$zip.Dispose()}
+  }
+  $leaf=Split-Path -Leaf $Target
+  $managedTarget=Join-Path $managed $leaf
+  foreach($path in @((Split-Path -Parent $instance),$managed,$tracker,$managedTarget)){
+   if(!(Test-Path -LiteralPath $path) -or ((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Unknown or redirected managed layout'}
+  }
+  $tracking=Get-Content -LiteralPath $tracker -Raw
+  if(!$tracking.TrimStart().StartsWith('[')){throw 'Unknown tracking format'}
+  $parsedTracking=ConvertFrom-Json -InputObject $tracking
+  $tracked=@($parsedTracking)
+  foreach($name in $tracked){if($name -isnot [string] -or [IO.Path]::GetFileName($name) -cne $name){throw 'Unknown tracking entry'}}
+  if(@($tracked|Where-Object{$_ -ceq $leaf}).Count -ne 1){throw 'Mod not uniquely tracked'}
+  $trackerHash=(Get-FileHash -LiteralPath $tracker -Algorithm SHA256).Hash
+  if((Get-FileHash -LiteralPath $managedTarget -Algorithm SHA256).Hash -ine $ExpectedOldHash){throw 'Managed copy differs'}
+  foreach($dir in @($mods,$managed)){
+   $same=@(Get-ChildItem -LiteralPath $dir -Filter '*.jar' -File|Where-Object{(Meta $_.FullName).id -ceq $ModId})
+   if($same.Count -ne 1 -or $same[0].Name -cne $leaf){throw 'Duplicate or ambiguous mod'}
+  }
+  $oldMeta=Meta $Target; $newMeta=Meta $Staged
+  if($oldMeta.id -cne $ModId -or $newMeta.id -cne $ModId -or [version]$newMeta.version -le [version]$oldMeta.version){throw 'Unexpected update identity or version'}
+ }
  Status 'waiting'
  while((Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) -or (Running $instance)){Start-Sleep -Seconds 3}
+ foreach($path in @($mods,$instance,$Target,$Staged)){if((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Redirected path after waiting'}}
+ $archiveParent=Join-Path $instance 'mod-archive'
+ if((Test-Path -LiteralPath $archiveParent) -and ((Get-Item -LiteralPath $archiveParent).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Redirected archive'}
  if((Get-FileHash -LiteralPath $Staged -Algorithm SHA256).Hash -ine $NewHash){throw 'Staged hash changed'}
  $archive=Join-Path $instance ('mod-archive/'+$ModId+'-'+[guid]::NewGuid().ToString('N'))
  New-Item -ItemType Directory -Path $archive | Out-Null
@@ -436,6 +470,38 @@ try {
  Copy-Item -LiteralPath $Staged -Destination $incoming
  if((Get-FileHash -LiteralPath $incoming -Algorithm SHA256).Hash -ine $NewHash){throw 'Copy hash mismatch'}
  if(Running $instance){throw 'Minecraft restarted'}
+ if($isManaged){
+  foreach($path in @((Split-Path -Parent $instance),$managed,$tracker,$managedTarget)){if((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint){throw 'Redirected managed path after waiting'}}
+  foreach($dir in @($mods,$managed)){
+   $same=@(Get-ChildItem -LiteralPath $dir -Filter '*.jar' -File|Where-Object{(Meta $_.FullName).id -ceq $ModId})
+   if($same.Count -ne 1 -or $same[0].Name -cne $leaf){throw 'Mod set changed while waiting'}
+  }
+  if((Get-FileHash -LiteralPath $tracker -Algorithm SHA256).Hash -ine $trackerHash){throw 'Tracking changed since preparation'}
+  $managedLock=[IO.File]::Open($managedTarget,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::Read -bor [IO.FileShare]::Delete))
+  $trackerLock=[IO.File]::Open($tracker,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+  $locked=[IO.File]::Open($Target,[IO.FileMode]::Open,[IO.FileAccess]::Read,([IO.FileShare]::Read -bor [IO.FileShare]::Delete))
+  if((Get-FileHash -LiteralPath $managedTarget -Algorithm SHA256).Hash -ine $ExpectedOldHash -or (Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash -ine $ExpectedOldHash -or (Get-FileHash -LiteralPath $tracker -Algorithm SHA256).Hash -ine $trackerHash){throw 'Managed target changed'}
+  $managedIncoming=Join-Path $archive 'managed-incoming.jar'
+  Copy-Item -LiteralPath $incoming -Destination $managedIncoming
+  if((Get-FileHash -LiteralPath $managedIncoming -Algorithm SHA256).Hash -ine $NewHash){throw 'Managed staged copy differs'}
+  $backup=Join-Path $archive 'runtime-before.jar';$managedBackup=Join-Path $archive 'managed-before.jar'
+  $movedRuntime=$false;$movedManaged=$false
+  try{
+   if(Running $instance){throw 'Minecraft restarted'}
+   Move-Item -LiteralPath $Target -Destination $backup;$movedRuntime=$true
+   Move-Item -LiteralPath $managedTarget -Destination $managedBackup;$movedManaged=$true
+   Move-Item -LiteralPath $incoming -Destination $Target
+   Move-Item -LiteralPath $managedIncoming -Destination $managedTarget
+   foreach($p in @($Target,$managedTarget)){if((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash -ine $NewHash -or (Meta $p).version -cne $newMeta.version){throw 'Installed copy differs'}}
+   foreach($p in @($backup,$managedBackup)){if((Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash -ine $ExpectedOldHash){throw 'Backup differs'}}
+   if((Get-FileHash -LiteralPath $tracker -Algorithm SHA256).Hash -ine $trackerHash){throw 'Tracking changed'}
+  }catch{
+   if($movedRuntime){if(Test-Path -LiteralPath $Target){if((Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash -ine $NewHash){throw 'Concurrent modification preserved'};Move-Item -LiteralPath $Target -Destination (Join-Path $archive 'failed-runtime.jar')};Move-Item -LiteralPath $backup -Destination $Target}
+   if($movedManaged){if(Test-Path -LiteralPath $managedTarget){if((Get-FileHash -LiteralPath $managedTarget -Algorithm SHA256).Hash -ine $NewHash){throw 'Concurrent modification preserved'};Move-Item -LiteralPath $managedTarget -Destination (Join-Path $archive 'failed-managed.jar')};Move-Item -LiteralPath $managedBackup -Destination $managedTarget}
+   throw
+  }
+  Status 'installed';exit 0
+ }
  $locked=[IO.File]::Open($Target,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Delete)
  if((Get-FileHash -InputStream $locked -Algorithm SHA256).Hash -ine $ExpectedOldHash){throw 'Target changed since preparation'}
  $backup=Join-Path $archive (Split-Path -Path $Target -Leaf)
@@ -451,7 +517,7 @@ try {
  $locked.Dispose();$locked=$null
  if((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash -ine $ExpectedOldHash){throw 'Backup hash mismatch'}
  Status 'installed'
-} catch { Status 'blocked'; exit 2 } finally {if($locked){$locked.Dispose()}}
+} catch { Write-Output $_.FullyQualifiedErrorId; Status 'blocked'; exit 2 } finally {if($locked){$locked.Dispose()};if($managedLock){$managedLock.Dispose()};if($trackerLock){$trackerLock.Dispose()}}
 
 """;
 }

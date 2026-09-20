@@ -11,6 +11,10 @@ public final class EventWire {
   public static final String OPEN = "tropimon:open_event_packet",
       PROGRESS = "tropimon:update_event_data_packet",
       REGION = "tropimon:set_current_server_packet";
+  public static final String GYMS = "tropimon:open_gym_selector_packet",
+      CHALLENGER = "tropimon:open_challenger_gym_terminal_packet",
+      LEADER = "tropimon:open_leader_gym_terminal_packet";
+  private static final Set<String> IDS = Set.of(OPEN, PROGRESS, REGION, GYMS, CHALLENGER, LEADER);
   static final int LIMIT = 1_048_576;
 
   public record Observation(String id, JsonObject json) {
@@ -18,6 +22,19 @@ public final class EventWire {
       try {
         if (id.equals(REGION)) {
           state.reset();
+          state.serverRecognized = true;
+          return;
+        }
+        if (id.equals(GYMS)) {
+          var gyms = GymObservation.selector(json, now);
+          state.gyms.clear();
+          state.gyms.putAll(gyms);
+          state.serverRecognized = true;
+          return;
+        }
+        if (id.equals(CHALLENGER) || id.equals(LEADER)) {
+          var gym = GymObservation.terminal(json, now);
+          state.gyms.put(gym.type(), gym);
           state.serverRecognized = true;
           return;
         }
@@ -62,7 +79,7 @@ public final class EventWire {
     for (int i = 0; i < prefix.length(); i++)
       if (frame.getByte(position + i) != prefix.charAt(i)) return null;
     String id = frame.toString(position, length, StandardCharsets.UTF_8);
-    if (!Set.of(OPEN, PROGRESS, REGION).contains(id)) return null;
+    if (!IDS.contains(id)) return null;
     try {
       return decode(id, frame.duplicate().readerIndex(position + length));
     } catch (RuntimeException malformed) {
@@ -74,13 +91,13 @@ public final class EventWire {
     ByteBuf input = source.duplicate();
     if (id.equals(REGION)) return new Observation(id, new JsonObject());
     String json;
-    if (id.equals(OPEN)) {
+    if (id.equals(OPEN) || id.equals(GYMS)) {
       int size = bounded(varInt(input), 32767 * 3);
       if (size > input.readableBytes()) throw invalid();
       json = input.toString(input.readerIndex(), size, StandardCharsets.UTF_8);
       input.skipBytes(size);
       if (json.length() > 32767) throw invalid();
-    } else if (id.equals(PROGRESS)) {
+    } else if (id.equals(PROGRESS) || id.equals(CHALLENGER) || id.equals(LEADER)) {
       int size = bounded(varInt(input), LIMIT);
       if (size < 4 || size > input.readableBytes()) throw invalid();
       int rawSize = bounded(input.readInt(), LIMIT);

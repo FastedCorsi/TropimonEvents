@@ -13,6 +13,55 @@ class DeferredUpdaterTest {
   @TempDir Path fixture;
 
   @Test
+  void managedCopiesAndTrackingArePreserved() throws Exception {
+    Assumptions.assumeTrue(System.getProperty("os.name").startsWith("Windows"));
+    var field = TropimonSelfUpdater.class.getDeclaredField("WINDOWS_INSTALLER");
+    field.setAccessible(true);
+    Path script = fixture.resolve("managed.ps1");
+    Files.writeString(script, (String) field.get(null));
+    Path mods = Files.createDirectories(fixture.resolve("profile/instance/mods"));
+    Path managed = Files.createDirectories(fixture.resolve("profile/instance/mods-user"));
+    Path target = mods.resolve("test.jar"), imported = managed.resolve("test.jar");
+    Path tracker = fixture.resolve("profile/user-mods-tracked.json");
+    Files.writeString(tracker, "[\"test.jar\",\"other-disabled.jar\"]");
+    jar(target, "1.0.0");
+    Files.copy(target, imported);
+    Path incoming = fixture.resolve("incoming.jar");
+    jar(incoming, "1.1.0");
+    String old = hash(target), next = hash(incoming), tracked = Files.readString(tracker);
+    // Inconsistent persistent imports must never be silently overwritten.
+    Files.writeString(imported, "changed");
+    assertEquals(2, run(script, incoming, target, old, next));
+    assertEquals(old, hash(target));
+    Files.copy(target, imported, StandardCopyOption.REPLACE_EXISTING);
+    assertEquals(
+        0,
+        run(script, incoming, target, old, next),
+        () -> {
+          try {
+            return Files.readString(fixture.resolve("test-output.txt"));
+          } catch (Exception e) {
+            return "No output";
+          }
+        });
+    assertEquals(next, hash(target));
+    assertEquals(next, hash(imported));
+    assertEquals(tracked, Files.readString(tracker));
+    assertEquals(2, run(script, incoming, target, old, next));
+    assertEquals(next, hash(imported));
+  }
+
+  private void jar(Path path, String version) throws Exception {
+    try (var zip = new java.util.zip.ZipOutputStream(Files.newOutputStream(path))) {
+      zip.putNextEntry(new java.util.zip.ZipEntry("fabric.mod.json"));
+      zip.write(
+          ("{\"id\":\"test_fixture\",\"version\":\"" + version + "\"}")
+              .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      zip.closeEntry();
+    }
+  }
+
+  @Test
   void generatedInstallerPreservesChangedTarget() throws Exception {
     Assumptions.assumeTrue(System.getProperty("os.name").startsWith("Windows"));
     var field = TropimonSelfUpdater.class.getDeclaredField("WINDOWS_INSTALLER");

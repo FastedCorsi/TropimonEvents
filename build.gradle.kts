@@ -1,4 +1,5 @@
 import java.security.MessageDigest
+import java.util.zip.ZipFile
 plugins { id("fabric-loom") version "1.15.5" }
 version = property("mod_version") as String
 group = property("maven_group") as String
@@ -8,8 +9,17 @@ val launcherHome = providers.environmentVariable("TROPIMON_HOME").orNull?.let(::
     ?: providers.environmentVariable("APPDATA").orNull?.let { file(it).resolve(".tropimon") }
     ?: file(System.getProperty("user.home")).resolve(".tropimon")
 val overrideJar = providers.gradleProperty("cobblemonJar").orNull?.let(::file)
-val installed = launcherHome.resolve("mods").listFiles()?.filter {
-    it.isFile && it.name.matches(Regex("Cobblemon-fabric-.+\\.jar", RegexOption.IGNORE_CASE))
+val profiles = launcherHome.resolve("profiles").listFiles()?.filter { it.resolve("instance/mods").isDirectory }.orEmpty()
+val activeHome = if (profiles.isEmpty()) launcherHome else {
+    check(profiles.size == 1 || overrideJar != null || providers.gradleProperty("officialDependenciesOnly").isPresent) { "Ambiguous launcher profiles: set TROPIMON_HOME to the intended instance." }
+    profiles.first().resolve("instance")
+}
+val installed = activeHome.resolve("mods").listFiles()?.filter {
+    it.isFile && it.extension.equals("jar", true) && ZipFile(it).use { zip ->
+        zip.getEntry("fabric.mod.json")?.let { entry ->
+            zip.getInputStream(entry).bufferedReader().use { reader -> Regex("\"id\"\\s*:\\s*\"cobblemon\"").containsMatchIn(reader.readText()) }
+        } ?: false
+    }
 }.orEmpty()
 val officialOnly = providers.gradleProperty("officialDependenciesOnly").isPresent
 val cbJar = if (officialOnly) null else overrideJar ?: run {
@@ -74,7 +84,10 @@ tasks.register("prepareReleaseDelivery") {
             source.copyTo(dest, true)
             val hash = MessageDigest.getInstance("SHA-256").digest(dest.readBytes()).joinToString("") { "%02x".format(it) }
             dest.resolveSibling(dest.name + ".sha256").writeText(hash + "\n")
-            if (kind == "local") file("tools/install-local-deferred.ps1").copyTo(dir.resolve("install-local-deferred.ps1"), true)
+            if (kind == "local") {
+                file("tools/install-local-deferred.ps1").copyTo(dir.resolve("install-local-deferred.ps1"), true)
+                file("tools/InstallManagedLocalMod.ps1").copyTo(dir.resolve("InstallManagedLocalMod.ps1"), true)
+            }
         }
     }
 }

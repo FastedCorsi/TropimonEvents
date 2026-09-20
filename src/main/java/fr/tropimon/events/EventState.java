@@ -29,6 +29,37 @@ public final class EventState {
 
   private final EnumMap<Kind, Notice> notices = new EnumMap<>(Kind.class);
   private final LinkedHashMap<String, Long> recent = new LinkedHashMap<>();
+  public final Map<String, GymObservation> gyms = new LinkedHashMap<>();
+  private final Map<UUID, RaidBoss> raidBars = new LinkedHashMap<>();
+
+  public record RaidBoss(Kind kind, String pokemon, long observed) {}
+
+  /** Only explicit server boss-bar labels. A generic Pokemon/battle name is insufficient. */
+  public void raidBar(UUID id, String title, long now) {
+    raidBars.remove(id);
+    if (title == null || title.length() > 128) return;
+    Matcher m =
+        Pattern.compile(
+                "^(Mega Raid|Méga Raid|Raid)\\s*[:—-]\\s*([\\p{L}0-9 .:'’♀♂-]{1,64})$",
+                Pattern.CASE_INSENSITIVE)
+            .matcher(title.strip());
+    if (!m.matches() || raidBars.size() >= 32) return;
+    Kind kind = m.group(1).equalsIgnoreCase("Raid") ? Kind.RAID : Kind.MEGA;
+    raidBars.put(id, new RaidBoss(kind, m.group(2).strip(), now));
+    notices.put(
+        kind,
+        new Notice(kind, kind == Kind.RAID ? "Raid observé" : "Méga Raid observé", title, now, 0));
+  }
+
+  public void removeRaidBar(UUID id) {
+    raidBars.remove(id);
+  }
+
+  public RaidBoss raidBoss(Kind kind) {
+    var matches = raidBars.values().stream().filter(b -> b.kind() == kind).toList();
+    return matches.size() == 1 ? matches.getFirst() : null;
+  }
+
   public String name = "", description = "";
   public Map<String, Integer> objectives = Map.of();
   public Integer points, currency, rank;
@@ -37,6 +68,8 @@ public final class EventState {
   public void reset() {
     notices.clear();
     recent.clear();
+    gyms.clear();
+    raidBars.clear();
     name = "";
     description = "";
     objectives = Map.of();
@@ -100,6 +133,8 @@ public final class EventState {
       kind = raid.group(2) == null ? Kind.RAID : Kind.MEGA;
       title = kind == Kind.RAID ? "Raid annoncé" : "Méga Raid annoncé";
       end = 0;
+      // A new announcement cannot reuse the Pokemon from an earlier raid observation.
+      raidBars.values().removeIf(b -> b.kind() == kind);
     } else {
       Matcher clear =
           Pattern.compile(

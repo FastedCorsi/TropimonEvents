@@ -1,6 +1,5 @@
 package fr.tropimon.events;
 
-import java.util.*;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
@@ -14,10 +13,36 @@ import org.slf4j.LoggerFactory;
 
 public final class EventsClient implements ClientModInitializer {
   public static final EventState STATE = new EventState();
+  static KeyBinding openKey;
+  private static final net.minecraft.network.packet.s2c.play.BossBarS2CPacket.Consumer RAID_BARS =
+      new net.minecraft.network.packet.s2c.play.BossBarS2CPacket.Consumer() {
+        public void add(
+            java.util.UUID id,
+            net.minecraft.text.Text name,
+            float percent,
+            net.minecraft.entity.boss.BossBar.Color color,
+            net.minecraft.entity.boss.BossBar.Style style,
+            boolean darken,
+            boolean music,
+            boolean fog) {
+          updateName(id, name);
+        }
 
-  @Override
+        public void updateName(java.util.UUID id, net.minecraft.text.Text name) {
+          STATE.raidBar(id, name.getString(), System.currentTimeMillis());
+        }
+
+        public void remove(java.util.UUID id) {
+          STATE.removeRaidBar(id);
+        }
+      };
+
+  public static void observeBossBar(net.minecraft.network.packet.s2c.play.BossBarS2CPacket packet) {
+    packet.accept(RAID_BARS);
+  }
+
   public void onInitializeClient() {
-    var key =
+    openKey =
         KeyBindingHelper.registerKeyBinding(
             new KeyBinding(
                 "key.tropimon_events.open",
@@ -26,48 +51,39 @@ public final class EventsClient implements ClientModInitializer {
                 "category.tropimon_events"));
     ClientTickEvents.END_CLIENT_TICK.register(
         c -> {
-          while (key.wasPressed()) c.setScreen(new EventsScreen());
+          while (openKey.wasPressed()) {
+            EventsHud.scroll = 0;
+            c.setScreen(c.currentScreen instanceof EventsScreen ? null : new EventsScreen());
+          }
         });
-    ClientPlayConnectionEvents.JOIN.register((h, s, c) -> STATE.reset());
-    ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> STATE.reset());
+    ClientPlayConnectionEvents.JOIN.register((h, s, c) -> reset());
+    ClientPlayConnectionEvents.DISCONNECT.register((h, c) -> reset());
     HudRenderCallback.EVENT.register(
         (c, t) -> {
           var mc = MinecraftClient.getInstance();
           if (mc.player == null || mc.options.hudHidden || mc.currentScreen instanceof EventsScreen)
             return;
-          var visible = STATE.visible(System.currentTimeMillis());
-          int x = 8, y = 8;
-          for (var notice : visible) {
-            c.fill(x, y, x + 25, y + 24, 0xDE0C1A25);
-            EventIcons.draw(c, notice.kind(), x + 6, y + 4, 1);
-            if (notice.end() > 0) {
-              long s = Math.max(0, (notice.end() - System.currentTimeMillis()) / 1000);
-              String count = s >= 60 ? s / 60 + "m" : s + "s";
-              c.drawText(mc.textRenderer, count, x + 3, y + 17, 0xFFEAF8F1, false);
-            }
-            if (mc.currentScreen != null) {
-              double mx =
-                  mc.mouse.getX() * mc.getWindow().getScaledWidth() / mc.getWindow().getWidth();
-              double my =
-                  mc.mouse.getY() * mc.getWindow().getScaledHeight() / mc.getWindow().getHeight();
-              if (mx >= x && mx < x + 25 && my >= y && my < y + 24)
-                c.drawTooltip(
-                    mc.textRenderer,
-                    List.of(
-                        net.minecraft.text.Text.literal(notice.title()),
-                        net.minecraft.text.Text.literal(notice.status(System.currentTimeMillis())),
-                        net.minecraft.text.Text.literal("F6 : détails · annonce serveur")),
-                    (int) mx,
-                    (int) my);
-            }
-            x += 29;
-          }
+          double mx =
+              mc.currentScreen == null
+                  ? -1
+                  : mc.mouse.getX() * mc.getWindow().getScaledWidth() / mc.getWindow().getWidth();
+          double my =
+              mc.currentScreen == null
+                  ? -1
+                  : mc.mouse.getY() * mc.getWindow().getScaledHeight() / mc.getWindow().getHeight();
+          EventsHud.draw(c, mx, my, false);
         });
     TropimonSelfUpdater.start(LoggerFactory.getLogger("tropimon_events"));
   }
 
-  public static void officialRegion() {
+  private static void reset() {
     STATE.reset();
+    EventIcons.reset();
+    EventsHud.scroll = 0;
+  }
+
+  public static void officialRegion() {
+    reset();
     STATE.serverRecognized = true;
   }
 

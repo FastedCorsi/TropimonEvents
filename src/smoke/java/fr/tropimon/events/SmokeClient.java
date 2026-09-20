@@ -21,6 +21,42 @@ public final class SmokeClient implements ClientModInitializer {
   net.minecraft.client.gui.screen.Screen screen;
   BlockPos habitatPos;
 
+  record GymFixture(String json) implements net.minecraft.network.packet.CustomPayload {
+    static final Id<GymFixture> ID = new Id<>(net.minecraft.util.Identifier.of(EventWire.GYMS));
+    static final net.minecraft.network.codec.PacketCodec<
+            net.minecraft.network.RegistryByteBuf, GymFixture>
+        CODEC =
+            net.minecraft.network.codec.PacketCodec.of(
+                (v, b) -> b.writeString(v.json()), b -> new GymFixture(b.readString()));
+
+    public Id<? extends net.minecraft.network.packet.CustomPayload> getId() {
+      return ID;
+    }
+  }
+
+  record TerminalFixture(byte[] data) implements net.minecraft.network.packet.CustomPayload {
+    static final Id<TerminalFixture> ID =
+        new Id<>(net.minecraft.util.Identifier.of(EventWire.CHALLENGER));
+    static final net.minecraft.network.codec.PacketCodec<
+            net.minecraft.network.RegistryByteBuf, TerminalFixture>
+        CODEC =
+            net.minecraft.network.codec.PacketCodec.of(
+                (v, b) -> b.writeByteArray(v.data()), b -> new TerminalFixture(b.readByteArray()));
+
+    public Id<? extends net.minecraft.network.packet.CustomPayload> getId() {
+      return ID;
+    }
+
+    static TerminalFixture create(String json) {
+      byte[] raw = json.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+      var compressor = new io.airlift.compress.zstd.ZstdCompressor();
+      byte[] compressed = new byte[compressor.maxCompressedLength(raw.length)];
+      int n = compressor.compress(raw, 0, raw.length, compressed, 0, compressed.length);
+      return new TerminalFixture(
+          java.nio.ByteBuffer.allocate(n + 4).putInt(raw.length).put(compressed, 0, n).array());
+    }
+  }
+
   record EventFixture(String json) implements net.minecraft.network.packet.CustomPayload {
     static final Id<EventFixture> ID =
         new Id<>(net.minecraft.util.Identifier.of("tropimon", "open_event_packet"));
@@ -41,6 +77,10 @@ public final class SmokeClient implements ClientModInitializer {
     if (!Boolean.getBoolean("tropimon.smoke")) return;
     net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playS2C()
         .register(EventFixture.ID, EventFixture.CODEC);
+    net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playS2C()
+        .register(GymFixture.ID, GymFixture.CODEC);
+    net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playS2C()
+        .register(TerminalFixture.ID, TerminalFixture.CODEC);
     start = System.nanoTime();
     ClientTickEvents.END_CLIENT_TICK.register(
         client -> {
@@ -127,6 +167,23 @@ public final class SmokeClient implements ClientModInitializer {
                             player.networkHandler.sendPacket(
                                 new net.minecraft.network.packet.s2c.play.GameMessageS2CPacket(
                                     net.minecraft.text.Text.literal(text), false));
+                          player.networkHandler.sendPacket(
+                              new net.minecraft.network.packet.s2c.common.CustomPayloadS2CPacket(
+                                  new GymFixture(
+                                      "{\"gyms\":{\"FIRE\":{\"type\":\"FIRE\",\"open\":true,\"leaderName\":\"TestLeader\"},\"WATER\":{\"type\":\"WATER\",\"open\":false}}}")));
+                          player.networkHandler.sendPacket(
+                              new net.minecraft.network.packet.s2c.common.CustomPayloadS2CPacket(
+                                  TerminalFixture.create(
+                                      "{\"first\":{\"type\":\"FIRE\",\"open\":true,\"champion\":{\"leaderData\":{\"name\":\"TestLeader\"}}},\"second\":{\"gymType\":\"FIRE\",\"gymChallengeType\":\"TITLE\",\"status\":\"IN_PROGRESS\"}}")));
+                          for (String boss : List.of("Raid : Charizard", "Mega Raid : Gengar")) {
+                            var bar =
+                                new net.minecraft.entity.boss.ServerBossBar(
+                                    net.minecraft.text.Text.literal(boss),
+                                    net.minecraft.entity.boss.BossBar.Color.RED,
+                                    net.minecraft.entity.boss.BossBar.Style.PROGRESS);
+                            player.networkHandler.sendPacket(
+                                net.minecraft.network.packet.s2c.play.BossBarS2CPacket.add(bar));
+                          }
                         })
                     .get();
                 stage = 2;
@@ -134,9 +191,23 @@ public final class SmokeClient implements ClientModInitializer {
               }
               case 2 -> {
                 require(
-                    EventsClient.STATE.visible(System.currentTimeMillis()).size() == 3,
+                    EventsClient.STATE.visible(System.currentTimeMillis()).size() == 4,
                     "actual system message packets detected");
                 shot(client, "events");
+                require(
+                    EventsClient.STATE.gyms.size() == 2
+                        && EventsClient.STATE.gyms.get("FIRE").battle().contains("en cours"),
+                    "gym wire and compressed terminal decoded");
+                require(
+                    EventsClient.STATE.raidBoss(EventState.Kind.RAID).pokemon().equals("Charizard"),
+                    "explicit raid boss network label decoded");
+                // F6 points at the first arena; do not operate a real server.
+                org.lwjgl.glfw.GLFW.glfwSetCursorPos(client.getWindow().getHandle(), 36, 192);
+                stage = 3;
+                ticks = 0;
+              }
+              case 3 -> {
+                shot(client, "arena-tooltip");
                 EventsClient.STATE.reset();
                 require(
                     EventsClient.STATE.visible(System.currentTimeMillis()).isEmpty(),

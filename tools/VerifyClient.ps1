@@ -4,7 +4,8 @@ param(
     [string]$CobblemonJar,
     [ValidateRange(960, 3840)][int]$Width = 1400,
     [ValidateRange(600, 2160)][int]$Height = 900,
-    [ValidateSet('fr_fr', 'en_us')][string]$Language = 'fr_fr'
+    [ValidateSet('fr_fr', 'en_us')][string]$Language = 'fr_fr',
+    [ValidatePattern('^[a-z0-9-]+$')][string]$RunName = 'icons-current'
 )
 # Import the engine's built-in modules explicitly, including when launched by a build daemon.
 Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
@@ -13,7 +14,7 @@ $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if (!$LauncherDirectory) { $LauncherDirectory = Join-Path $env:APPDATA '.tropimon' }
 $launcher = $LauncherDirectory
-$run = Join-Path $project "build/verify-$Mode"
+$run = Join-Path $project "build/verify-$RunName"
 if (Get-CimInstance Win32_Process -Filter "Name='java.exe' OR Name='javaw.exe'" |
         Where-Object { $_.CommandLine -and $_.CommandLine.Contains($run) }) {
     throw 'Close this isolated test instance before replacing its test JAR.'
@@ -33,7 +34,7 @@ if ($activeCobblemon.Count -ne 1) {
 }
 Get-ChildItem -LiteralPath $mods -Filter 'Cobblemon-fabric-*.jar' -File |
     ForEach-Object { Remove-Item -LiteralPath $_.FullName }
-Copy-Item -LiteralPath $activeCobblemon[0].FullName -Destination $mods
+Copy-Item -LiteralPath $activeCobblemon[0].FullName -Destination (Join-Path $mods 'Cobblemon-under-test.jar')
 $patterns = @('fabric-api-0.116.6+1.21.1.jar', 'fabric-language-kotlin-*.jar')
 if ($Mode -eq 'integrations') { $patterns += @('TropimodClient-*.jar', 'TropimonBuild-*.jar', '*xaero*.jar', 'mega_showdown-*.jar', 'architectury-*.jar') }
 foreach ($pattern in $patterns) {
