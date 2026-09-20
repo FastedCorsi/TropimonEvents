@@ -63,6 +63,9 @@ class GymObservationTest {
     new EventWire.Observation(EventWire.LEADER, terminal("TITLE", "IN_PROGRESS"))
         .apply(state, null, 1000);
     assertTrue(state.gyms.get("FIRE").battle().contains("en cours"));
+    state.region(1500);
+    assertTrue(state.gyms.get("FIRE").open());
+    assertTrue(state.gyms.get("FIRE").battle().contains("en cours"));
     new EventWire.Observation(
             EventWire.GYMS,
             json(

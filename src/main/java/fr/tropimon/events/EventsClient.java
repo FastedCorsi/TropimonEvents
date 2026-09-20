@@ -120,7 +120,6 @@ public final class EventsClient implements ClientModInitializer {
 
   public static void officialRegion() {
     GYMS.reset(System.currentTimeMillis());
-    EventIcons.reset();
   }
 
   public static void systemMessage(String text) {

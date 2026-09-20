@@ -96,22 +96,11 @@ public final class EventState {
     }
   }
 
-  /** Boosts are server-wide; a region change must not erase their remaining duration. */
+  /** Travel is not a state update; only a new connection resets session observations. */
   public void region(long now) {
-    var boosts =
-        notices.values().stream()
-            .filter(
-                n ->
-                    (n.kind() == Kind.SHINY
-                            || n.kind() == Kind.XP
-                            || n.kind() == Kind.IV
-                            || n.kind() == Kind.ABILITY)
-                        && n.end() > now)
-            .toList();
     var early = List.copyOf(earlyMessages);
-    reset();
+    earlyMessages.clear();
     serverRecognized = true;
-    for (var boost : boosts) notices.put(boost.kind(), boost);
     for (var message : early)
       if (now - message.received() <= 30000) accept(message.text(), true, message.received());
   }

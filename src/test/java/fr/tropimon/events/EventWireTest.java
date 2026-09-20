@@ -115,7 +115,7 @@ class EventWireTest {
       var s = new EventState();
       s.progress(1, 1, 1);
       update.apply(s, null, 0);
-      assertNull(s.points);
+      assertEquals(1, s.points);
       assertTrue(s.serverRecognized);
     } finally {
       frame.release();

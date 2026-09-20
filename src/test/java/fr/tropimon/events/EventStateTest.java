@@ -15,10 +15,37 @@ class EventStateTest {
     state.gyms.put("FIRE", new GymObservation("FIRE", "", true, "", 6000));
     state.region(7000);
     assertEquals(5623000, state.visible(7000).getFirst().end());
-    assertTrue(state.gyms.isEmpty());
+    assertTrue(state.gyms.get("FIRE").open());
     state.reset();
     state.region(8000);
     assertTrue(state.visible(8000).isEmpty());
+    assertTrue(state.gyms.isEmpty());
+  }
+
+  @Test
+  void travelPreservesObservationsWithoutExtendingTheirLifetime() {
+    var state = new EventState();
+    state.region(1000);
+    String announcement = "TestPlayer triggered a XP x2 for one hour !";
+    state.systemMessage(announcement, 1000);
+    state.definition("Season", "Goals", 20000, java.util.Map.of("HUNTS", 5), 1000);
+    state.progress(42, 7, 2);
+    var id = java.util.UUID.randomUUID();
+    state.raidBar(id, "Raid: Charizard", 1000);
+    var before = state.visible(1000);
+    state.region(1500);
+    state.region(2000);
+    assertEquals(before, state.visible(2000));
+    assertEquals(42, state.points);
+    assertEquals(5, state.objectives.get("HUNTS"));
+    assertEquals("Charizard", state.raidBoss(EventState.Kind.RAID).pokemon());
+    assertFalse(state.accept(announcement, true, 2000));
+    state.region(4000000);
+    assertTrue(state.visible(4000000).isEmpty());
+    state.reset();
+    assertFalse(state.serverRecognized);
+    assertNull(state.raidBoss(EventState.Kind.RAID));
+    assertNull(state.points);
   }
 
   @Test

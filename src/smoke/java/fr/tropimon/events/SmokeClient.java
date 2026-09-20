@@ -294,10 +294,35 @@ public final class SmokeClient implements ClientModInitializer {
                 require(
                     EventsClient.STATE.raidBoss(EventState.Kind.RAID).pokemon().equals("Charizard"),
                     "explicit raid boss network label decoded");
+                client
+                    .getServer()
+                    .submit(
+                        () -> {
+                          var player =
+                              client
+                                  .getServer()
+                                  .getPlayerManager()
+                                  .getPlayer(client.player.getUuid());
+                          player.networkHandler.sendPacket(
+                              new net.minecraft.network.packet.s2c.common.CustomPayloadS2CPacket(
+                                  new RegionFixture("synthetic-arena")));
+                        })
+                    .get();
                 stage = 3;
                 ticks = 0;
               }
               case 3 -> {
+                require(
+                    EventsClient.STATE.gyms.size() == 2
+                        && EventsClient.STATE.gyms.get("FIRE").open()
+                        && EventsClient.STATE.gyms.get("FIRE").battle().contains("en cours"),
+                    "region packet preserves open gym and terminal state");
+                require(
+                    EventsClient.STATE.visible(System.currentTimeMillis()).size() == 7,
+                    "region packet preserves all HUD event icons");
+                require(
+                    EventsClient.STATE.raidBoss(EventState.Kind.RAID).pokemon().equals("Charizard"),
+                    "region packet preserves unchanged raid identity");
                 shot(client, "automatic-hud");
                 client.options.getGuiScale().setValue(scale);
                 org.lwjgl.glfw.GLFW.glfwSetWindowSize(client.getWindow().getHandle(), 1400, 1000);
