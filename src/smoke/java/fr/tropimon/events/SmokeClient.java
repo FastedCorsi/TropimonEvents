@@ -20,6 +20,7 @@ public final class SmokeClient implements ClientModInitializer {
   long start;
   boolean joined;
   volatile int visits;
+  volatile int raidVisits;
   volatile boolean visitorRequest;
   BlockPos habitatPos;
 
@@ -92,6 +93,13 @@ public final class SmokeClient implements ClientModInitializer {
   @Override
   public void onInitializeClient() {
     if (!Boolean.getBoolean("tropimon.smoke")) return;
+    net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback.EVENT.register(
+        (dispatcher, registry, environment) -> dispatcher.register(
+            net.minecraft.server.command.CommandManager.literal("warp").then(
+                net.minecraft.server.command.CommandManager.literal("raid").executes(command -> {
+                  raidVisits++;
+                  return 1;
+                }))));
     EventsClient.STATE.accept("- XP x2 (end in 10 minutes)", true, System.currentTimeMillis());
     net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry.playC2S()
         .register(
@@ -385,6 +393,34 @@ public final class SmokeClient implements ClientModInitializer {
                 require(
                     visits == scale && visitorRequest,
                     "exactly one official visitor request received per click");
+                require(raidVisits == scale - 1, "no automatic raid teleport");
+                client.setScreen(new net.minecraft.client.gui.screen.ChatScreen("raid"));
+                var chat = client.currentScreen;
+                var click = net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents.allowMouseClick(chat).invoker();
+                boolean found = false;
+                var expected = scale % 2 == 0 ? EventState.Kind.MEGA : EventState.Kind.RAID;
+                for (int y = 24; y < client.getWindow().getScaledHeight() && !found; y++)
+                  for (int x = 8; x < client.getWindow().getScaledWidth(); x++) {
+                    var raid = EventsHud.raidAt(x, y);
+                    if (raid == null || raid.kind() != expected) continue;
+                    client.options.hudHidden = true;
+                    require(click.allowMouseClick(chat, x, y, 0), "hidden raid cannot teleport");
+                    client.options.hudHidden = false;
+                    require(click.allowMouseClick(chat, x, y, 1), "right raid click cannot teleport");
+                    EventsClient.STATE.serverRecognized = false;
+                    require(click.allowMouseClick(chat, x, y, 0), "foreign server cannot receive raid warp");
+                    EventsClient.STATE.serverRecognized = true;
+                    require(!click.allowMouseClick(chat, x, y, 0), "raid click consumed at GUI " + scale);
+                    require(client.currentScreen == null, "raid warp closes chat");
+                    found = true;
+                    break;
+                  }
+                require(found, "raid hit area found at GUI " + scale);
+                stage = 9;
+                ticks = 0;
+              }
+              case 9 -> {
+                require(raidVisits == scale, "exactly one warp raid reaches server per click");
                 if (scale == 5) {
                   EventsClient.STATE.reset();
                   require(

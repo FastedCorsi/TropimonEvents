@@ -91,7 +91,7 @@ public final class BaronSmoke {
             ticks = 0;
             switch (stage) {
               case 0 -> {
-                if (EventsClient.BARONS.count() < 2 && System.nanoTime() - started < 25_000_000_000L)
+                if (baronCount(c) < 2 && System.nanoTime() - started < 25_000_000_000L)
                   return;
                 for (var observed : c.world.getEntities())
                   if (observed instanceof PokemonEntity pokemon)
@@ -100,7 +100,7 @@ public final class BaronSmoke {
                         + " distance=" + pokemon.distanceTo(c.player));
                 SmokeClient.require(chimes == 0, "Baron discovery is silent");
                 SmokeClient.require(
-                    EventsClient.BARONS.count() == 2,
+                    baronCount(c) == 2,
                     "only wild Alpha is detected; normal and owned Alpha excluded");
                 SmokeClient.require(
                     BaronTracker.isBaron(entity(c, wild)), "Alpha synchronized from server");
@@ -144,7 +144,7 @@ public final class BaronSmoke {
               }
               case 1 -> {
                 SmokeClient.require(
-                    c.getWindow().getScaleFactor() == scale, "Baron HUD effective GUI " + scale);
+                    c.getWindow().getScaleFactor() == scale, "Baron map effective GUI " + scale);
                 SmokeClient.shot(c, "baron-gui-" + scale);
                 if (++scale <= 4) {
                   c.options.getGuiScale().setValue(scale);
@@ -192,11 +192,9 @@ public final class BaronSmoke {
               case 3 -> {
                 SmokeClient.require(chimes == 0, "Baron remains silent after reload");
                 SmokeClient.require(
-                    EventsClient.BARONS.count() == 0 && EventsClient.BARONS.visible().isEmpty(),
+                    baronCount(c) == 0,
                     "unloaded Baron disappears without stale marker");
                 SmokeClient.shot(c, "baron-gone");
-                EventsClient.BARONS.reset();
-                SmokeClient.require(EventsClient.BARONS.visible().isEmpty(), "Baron session reset");
                 System.out.println("TROPIMON_SMOKE_OK");
                 c.scheduleStop();
                 stage = 99;
@@ -209,6 +207,13 @@ public final class BaronSmoke {
             stage = 99;
           }
         });
+  }
+
+  private static int baronCount(MinecraftClient client) {
+    int count = 0;
+    for (var entity : client.world.getEntities())
+      if (BaronTracker.isBaron(entity)) count++;
+    return count;
   }
 
   private static PokemonEntity entity(MinecraftClient client, UUID id) {

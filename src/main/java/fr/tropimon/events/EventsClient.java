@@ -9,7 +9,6 @@ import org.slf4j.LoggerFactory;
 
 public final class EventsClient implements ClientModInitializer {
   public static final EventState STATE = new EventState();
-  public static final BaronTracker BARONS = new BaronTracker();
   public static final GymRefresh GYMS = new GymRefresh();
   private static final net.minecraft.network.packet.s2c.play.BossBarS2CPacket.Consumer RAID_BARS =
       new net.minecraft.network.packet.s2c.play.BossBarS2CPacket.Consumer() {
@@ -39,11 +38,9 @@ public final class EventsClient implements ClientModInitializer {
   }
 
   public void onInitializeClient() {
-    BARONS.register();
     BaronOutline.register();
     ClientTickEvents.END_CLIENT_TICK.register(
         c -> {
-          BARONS.tick(c);
           if (c.player != null
               && c.getNetworkHandler() != null
               && STATE.serverRecognized
@@ -87,7 +84,6 @@ public final class EventsClient implements ClientModInitializer {
   }
 
   private static void connectionChanged(MinecraftClient client) {
-    BARONS.reset();
     GYMS.reset(System.currentTimeMillis());
     STATE.connectionChanged(client.getSession().getUuidOrNull(), System.currentTimeMillis());
     EventIcons.reset();
