@@ -7,6 +7,6 @@ Cobblemon, Minecraft et Fabric restent la propriété de leurs auteurs respectif
 
 Les badges et la Super Baie Enigma sont affichés depuis les ressources du client officiel Tropimon/Tropifurnitures installé. Crédit à leurs auteurs ; ces images ne sont pas copiées dans le mod. Les bonbons et étoiles shiny sont lus dans les ressources Cobblemon installées, y compris leurs remplacements par les packs actifs.
 
-La compatibilité facultative Xaero utilise les icônes choisies par Xaero's Minimap et Xaero's World Map, par Xaero. Aucune image de Xaero ni de pack d'icônes tiers n'est redistribuée ; le contour est produit par Events.
+La compatibilité facultative Xaero utilise les icônes choisies par Xaero's Minimap et Xaero's World Map, par Xaero. Aucune image de Xaero ni de pack d'icônes tiers n'est redistribuée ; le contour est produit par Events. L'emplacement du symbole Baron reprend celui des étoiles du pack E19 Cobblemon Minimap Icons (Emery319, icônes créditées à MBCMechachu ; https://github.com/Emery319/E19-CobblemonMinimapIcons). Le symbole Alpha est lu directement dans les ressources officielles de Cobblemon.
 
 Aircompressor 0.27 (Airlift, Apache License 2.0) est inclus pour décoder les paquets Zstandard du protocole officiel. Crédits et licence du JAR original conservés. https://github.com/airlift/aircompressor

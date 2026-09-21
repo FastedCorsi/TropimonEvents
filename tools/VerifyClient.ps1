@@ -3,6 +3,7 @@ param(
     [string]$LauncherDirectory = $env:TROPIMON_HOME,
     [string]$CobblemonJar,
     [string]$OfficialResourcesJar,
+    [string]$MinimapResourcesJar,
     [ValidateRange(960, 3840)][int]$Width = 1400,
     [ValidateRange(600, 2160)][int]$Height = 900,
     [ValidateSet('fr_fr', 'en_us')][string]$Language = 'fr_fr',
@@ -94,12 +95,21 @@ if ($OfficialResourcesJar) {
     $optionsLines += 'resourcePacks:["vanilla","file/official-gym-fixture"]'
 }
 if ($Mode -eq 'barons') {
-    $icons = Join-Path (Split-Path -Parent $project) 'E19-CobblemonMinimapIcons/dist/E19-Cobblemon-Minimap-Icons-1.4.4-Barons-1.8.1.zip'
-    if (!(Test-Path -LiteralPath $icons)) { throw 'Local icon fixture is missing.' }
+    if (!$MinimapResourcesJar) { throw 'Select the installed minimap artwork JAR for the isolated fixture.' }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
     New-Item -ItemType Directory -Force (Join-Path $run 'resourcepacks') | Out-Null
-    Copy-Item -LiteralPath $icons -Destination (Join-Path $run 'resourcepacks/baron-icons.zip')
+    $iconPack = Join-Path $run 'resourcepacks/installed-minimap-fixture'
+    $archive = [IO.Compression.ZipFile]::OpenRead($MinimapResourcesJar)
+    try {
+        foreach ($entry in $archive.Entries | Where-Object { $_.FullName.StartsWith('assets/xaerominimap/entity/icon/') -and $_.Name -and $_.FullName -notmatch '/\.idea/' }) {
+            $target = Join-Path $iconPack $entry.FullName
+            [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target)) | Out-Null
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $target, $true)
+        }
+    } finally { $archive.Dispose() }
+    [IO.File]::WriteAllText((Join-Path $iconPack 'pack.mcmeta'), '{"pack":{"pack_format":34,"description":"Local installed minimap artwork fixture"}}')
     $optionsLines = @($optionsLines | Where-Object { $_ -notmatch '^resourcePacks:' })
-    $optionsLines += 'resourcePacks:["vanilla","file/baron-icons.zip"]'
+    $optionsLines += 'resourcePacks:["vanilla","file/installed-minimap-fixture"]'
     $xaeroConfig = Join-Path $run 'config'
     New-Item -ItemType Directory -Force $xaeroConfig | Out-Null
     # Explicit icons in the isolated fixture; never change the player's settings.

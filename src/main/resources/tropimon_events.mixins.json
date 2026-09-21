@@ -9,6 +9,7 @@
     "RegionPacketMixin",
     "GymScreenMixin",
     "XaeroBaronMixin",
+    "XaeroIconBuffer",
     "XaeroBaronColorMixin"
   ],
   "injectors": {

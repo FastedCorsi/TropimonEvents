@@ -1,6 +1,6 @@
 # Tropimon Events
 
-By FastedCorsi — 0.2.8
+By FastedCorsi — 0.2.9
 
 Des icônes Pokémon/Cobblemon directement dans le HUD. Aucune touche ni ouverture de menu n'est nécessaire : le raccourci F6 et l'écran d'inspection ont été retirés.
 
@@ -22,7 +22,7 @@ L'annonce textuelle de déclenchement de raid connue ne fournit pas son Pokémon
 
 Les Pokémon sauvages dont le statut Alpha est transmis par Cobblemon sont signalés visuellement, sans aucun son. Le HUD affiche les quatre plus proches avec portrait, niveau et distance. Les Pokémon possédés et les clones de combat sont exclus. Un Pokémon déchargé disparaît du HUD.
 
-Avec Xaero, un contour rouge entoure l'icône déjà sélectionnée par la minimap et la carte du monde, sans remplacer son image ni ses couleurs. Si Xaero affiche des points, celui du Baron devient rouge. Les réglages de visibilité et les restrictions du radar restent respectés ; Events n'active pas des icônes désactivées dans Xaero. Sans Xaero, le HUD reste disponible. Seuls les Pokémon déjà transmis au client sont détectables.
+Avec Xaero, un contour rouge entoure l'icône déjà sélectionnée par la minimap et la carte du monde, sans remplacer son image ni ses couleurs. Le symbole Alpha officiel de Cobblemon est ajouté dans le même emplacement et au même gabarit que les étoiles shiny du pack E19 intégré à Tropimon. Un Baron shiny conserve ses étoiles à droite et reçoit le symbole Alpha à gauche. Le symbole est lu dans Cobblemon, sans copie de ses ressources dans le JAR. Si Xaero affiche des points, celui du Baron devient rouge. Les réglages de visibilité et les restrictions du radar restent respectés ; Events n'active pas des icônes désactivées dans Xaero. Sans Xaero, le HUD reste disponible. Seuls les Pokémon déjà transmis au client sont détectables.
 
 ## Vérification et compatibilité
 
@@ -41,7 +41,7 @@ Tests unitaires, vérifications d'installation différée et contrôle de confid
 
 ## Livraison
 
-Deux JAR identiques dans `build/release/0.2.8/local` et `build/release/0.2.8/shareable`, accompagnés de SHA-256. Ne pas charger les deux exemplaires. La livraison LOCAL inclut un installateur autonome pour le stockage géré : `mods-user`, `mods` et `user-mods-tracked.json`. Il préserve les autres mods et leur désactivation, attend la fermeture du jeu, vérifie les empreintes et sauvegarde les anciens fichiers hors des dossiers chargés. Le launcher peut rester ouvert.
+Deux JAR identiques dans `build/release/0.2.9/local` et `build/release/0.2.9/shareable`, accompagnés de SHA-256. Ne pas charger les deux exemplaires. La livraison LOCAL inclut un installateur autonome pour le stockage géré : `mods-user`, `mods` et `user-mods-tracked.json`. Il préserve les autres mods et leur désactivation, attend la fermeture du jeu, vérifie les empreintes et sauvegarde les anciens fichiers hors des dossiers chargés. Le launcher peut rester ouvert.
 
 L'auto-update autonome consulte uniquement la Release officielle de ce dépôt, avec vérification SHA-256/id/version, préparation hors des mods et remplacement différé sous Windows. Sur un profil géré, il met à jour les deux copies sous leur nom déjà suivi, vérifie que le suivi reste inchangé et refuse une copie divergente ou une cible modifiée. Il ne répare pas rétroactivement les anciennes versions distribuées. Vérification espacée d'au moins six heures ; désactivation locale dans `config/tropimon_events-updater.json`.
 
